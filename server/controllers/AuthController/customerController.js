@@ -1,0 +1,457 @@
+import { pool } from "../../configs/db.js";
+import { generateOtp, hashOtp } from "../../utils/otp.js";
+import { sendEmailOtp } from "../../utils/email.js";
+import { createAuthSession, invalidateSession } from "../../utils/authSession.js";
+
+export const loginCustomer = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if(!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Some fields are missing'
+      })
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ success: false, message: "Invalid email format" });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
+    }
+
+    const existingUser = await pool.query("SELECT * FROM customers WHERE email = $1", [email])
+    if(existingUser.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found, try to register'
+      })
+    }
+
+    const user = existingUser.rows[0];
+
+    const passwordMatch = await pool.query("SELECT crypt($1, $2) = $2 AS match", [password, user.password_hash])
+    if(!passwordMatch.rows[0].match) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid password'
+      })
+    }
+
+    // Create Auth Session
+    const ip = req.ip || req.connection.remoteAddress;
+    const device = { agent: req.get('User-Agent') };
+    const session = await createAuthSession(user.customer_id, 'customer', ip, device);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logging in customer successful',
+      data: {
+        id: user.customer_id,
+        name: user.full_name,
+        email: user.email,
+        phone: user.phone,
+        profile_picture_url: user.profile_picture_url,
+        sessionId: session.sessionId,
+        token: session.token
+      }
+    })
+
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Customer login failed',
+      error: error.message
+    })
+  }
+}
+
+export const registerCustomer = async (req, res) => {
+  try {
+    const { full_name, email, phone, date_of_birth, gender, profile_picture_url, password } = req.body;
+
+    if (!full_name || !email || !phone || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Required fields are missing",
+      });
+    }
+
+    if (full_name.trim().length < 3) {
+      return res.status(400).json({ success: false, message: "Full name must be at least 3 characters" });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ success: false, message: "Invalid email format" });
+    }
+
+    const phoneRegex = /^\d{10}$/;
+    if (!phoneRegex.test(phone)) {
+      return res.status(400).json({ success: false, message: "Phone number must be 10 digits" });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters",
+      });
+    }
+
+    const existingUser = await pool.query(
+      "SELECT customer_id FROM customers WHERE email = $1",
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: "Email already registered",
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO customers 
+      (customer_id, full_name, email, phone, password_hash, date_of_birth, gender, profile_picture_url) 
+      VALUES 
+      (gen_random_uuid(), $1, $2, $3, crypt($4, gen_salt('bf')), $5, $6, $7)
+      RETURNING customer_id, full_name, email, phone, profile_picture_url`,
+      [full_name, email, phone, password, date_of_birth || null, gender || null, profile_picture_url || null]
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Customer registered successfully",
+      data: {
+        id: result.rows[0].customer_id,
+        name: result.rows[0].full_name,
+        email: result.rows[0].email,
+        phone: result.rows[0].phone,
+        profile_picture_url: result.rows[0].profile_picture_url
+      },
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Customer registration failed",
+    });
+  }
+};
+
+export const customerOnboarding = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const {
+      full_name,
+      phone,
+      address_line_1,
+      address_line_2,
+      city,
+      state,
+      pincode,
+      country,
+      is_default,
+    } = req.body;
+
+    if (!address_line_1 || !city || !state || !pincode) {
+      return res.status(400).json({
+        success: false,
+        message: "Required fields missing",
+      });
+    }
+
+    const user = await pool.query(
+      "SELECT full_name, phone FROM customers WHERE customer_id = $1",
+      [id]
+    );
+
+    if (user.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO addresses 
+      (address_id, customer_id, full_name, phone, address_line_1, address_line_2, city, state, pincode, country, is_default)
+      VALUES 
+      (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING *`,
+      [
+        id,
+        full_name,
+        phone,
+        address_line_1,
+        address_line_2,
+        city,
+        state,
+        pincode,
+        country,
+        is_default ?? true,
+      ]
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Address added successfully",
+      data: result.rows[0],
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Customer onboarding failed",
+    });
+  }
+};
+
+
+export const getCustomerById = async (req, res) => {
+    try {
+        const {id} = req.params;
+
+        const user = await pool.query("SELECT * FROM customers WHERE customer_id = $1", [id]);
+
+        if(user.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            })
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'Getting customer id is successful',
+            data: user.rows[0]
+        })
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to get customer by id',
+            error: error.message
+        })
+    }
+}
+
+export const updateCustomer = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { full_name, phone, date_of_birth, gender, profile_picture_url } = req.body;
+
+    if (!full_name || !phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Full name and phone are required",
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE customers 
+       SET full_name = $1, phone = $2, date_of_birth = $3, gender = $4, profile_picture_url = $5 
+       WHERE customer_id = $6 
+       RETURNING customer_id, full_name, email, phone, date_of_birth, gender, profile_picture_url`,
+      [full_name, phone, date_of_birth || null, gender || null, profile_picture_url || null, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Customer updated successfully",
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update customer",
+      error: error.message,
+    });
+  }
+};
+
+export const getCustomerStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const ordersCount = await pool.query("SELECT COUNT(*) FROM orders WHERE customer_id = $1", [id]);
+    const cartCount = await pool.query("SELECT item_count FROM cart WHERE customer_id = $1", [id]);
+    const wishlistCount = await pool.query("SELECT item_count FROM wishlist WHERE customer_id = $1", [id]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        orders: parseInt(ordersCount.rows[0].count),
+        cart: cartCount.rows[0]?.item_count || 0,
+        wishlist: wishlistCount.rows[0]?.item_count || 0,
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Failed to get customer stats", error: error.message });
+  }
+};
+
+export const getCustomerOrders = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT * FROM orders WHERE customer_id = $1 ORDER BY placed_at DESC`,
+      [id]
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Failed to get customer orders", error: error.message });
+  }
+};
+
+export const getCustomerAddresses = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT * FROM addresses WHERE customer_id = $1 ORDER BY is_default DESC, created_at DESC`,
+      [id]
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Failed to get customer addresses", error: error.message });
+  }
+};
+
+
+export const logoutCustomer = async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    if (sessionId) {
+      await invalidateSession(sessionId);
+    }
+    return res.status(200).json({ success: true, message: "Logout successful" });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Customer logout failed',
+      error: error.message
+    })
+  }
+}
+
+export const sendOTP = async (req, res) => {
+  try {
+    const { email, purpose, user_type } = req.body;
+    const type = user_type || 'customer';
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email is required" });
+    }
+
+    // Check existence based on purpose
+    const table = type === 'seller' ? 'sellers' : 'customers';
+    const idColumn = type === 'seller' ? 'seller_id' : 'customer_id';
+    
+    const existingUser = await pool.query(`SELECT ${idColumn} FROM ${table} WHERE email = $1`, [email]);
+    
+    if (purpose === 'registration' && existingUser.rows.length > 0) {
+      return res.status(409).json({ success: false, message: "Email already registered" });
+    }
+
+    const otp = generateOtp();
+    const otp_hash = hashOtp(otp);
+    const expires_at = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await pool.query(
+      `INSERT INTO otp_verifications (otp_id, contact, otp_hash, expires_at, user_type, purpose)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
+       ON CONFLICT (contact) DO UPDATE 
+       SET otp_hash = $2, expires_at = $3, is_used = false, attempts = 0, purpose = $5, user_type = $4`,
+      [email, otp_hash, expires_at, type, purpose || 'registration']
+    );
+
+    await sendEmailOtp(email, otp);
+
+    return res.status(200).json({ success: true, message: "OTP sent successfully" });
+  } catch (error) {
+    console.error("SEND OTP ERROR:", error.message);
+    return res.status(500).json({ success: false, message: "Failed to send OTP" });
+  }
+};
+
+export const verifyOTP = async (req, res) => {
+  try {
+    const { email, otp, purpose, user_type } = req.body;
+    const type = user_type || 'customer';
+
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: "Email and OTP are required" });
+    }
+
+    const result = await pool.query(
+      `SELECT * FROM otp_verifications 
+       WHERE contact = $1 AND user_type = $2 AND purpose = $3`,
+      [email, type, purpose || 'registration']
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "OTP not found" });
+    }
+
+    const otpData = result.rows[0];
+
+    if (otpData.is_used) {
+      return res.status(400).json({ success: false, message: "OTP already used" });
+    }
+
+    if (new Date() > otpData.expires_at) {
+      return res.status(400).json({ success: false, message: "OTP expired" });
+    }
+
+    if (otpData.attempts >= 5) {
+      return res.status(400).json({ success: false, message: "Too many failed attempts" });
+    }
+
+    const hashedInput = hashOtp(otp);
+    if (hashedInput !== otpData.otp_hash) {
+      await pool.query(
+        "UPDATE otp_verifications SET attempts = attempts + 1 WHERE otp_id = $1",
+        [otpData.otp_id]
+      );
+      return res.status(400).json({ success: false, message: "Invalid OTP" });
+    }
+
+    // Mark as used
+    await pool.query(
+      "UPDATE otp_verifications SET is_used = true WHERE otp_id = $1",
+      [otpData.otp_id]
+    );
+
+    return res.status(200).json({ success: true, message: "OTP verified successfully" });
+  } catch (error) {
+    console.error("VERIFY OTP ERROR:", error.message);
+    return res.status(500).json({ success: false, message: "Failed to verify OTP" });
+  }
+};

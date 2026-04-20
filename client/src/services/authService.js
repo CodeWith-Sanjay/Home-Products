@@ -1,0 +1,128 @@
+import { api } from "./api.js";
+
+
+export const sendOtp = (data) =>
+  api.post(`/user/customer/send-otp`, data).then((res) => res.data);
+
+export const verifyOtp = (data) =>
+  api.post(`/user/customer/verify-otp`, data).then((res) => res.data);
+
+export const sendSellerOtp = (data) =>
+  api.post(`/user/seller/send-otp`, { ...data, user_type: 'seller' }).then((res) => res.data);
+
+export const verifySellerOtp = (data) =>
+  api.post(`/user/seller/verify-otp`, { ...data, user_type: 'seller' }).then((res) => res.data);
+
+export const customerRegister = async (registerData) => {
+    try {
+        const res = await api.post('/user/customer/register', registerData);
+        return res.data        
+    } catch (error) {
+        return {success: false, message: error?.response?.data?.message || error.message}
+    }
+}
+
+export const customerLogin = async (loginData) => {
+    try {
+        const res = await api.post('/user/customer/login', loginData);
+        return res.data
+    } catch (error) {
+        return {success: false, message: error?.response?.data?.message || error.message}
+    }
+}
+
+export const customerOnboarding = async (id, onBoardingData) => {
+    try {
+        const res = await api.post(`/user/customer-onboarding/${id}`, onBoardingData);
+        return res.data
+    } catch (error) {
+        return {success: false, message: error?.response?.data?.message || error.message}
+    }
+}
+
+export const sellerRegister = async (registerData) => {
+    try {
+        const res = await api.post(`/user/seller/register`, registerData);
+        return res.data
+    } catch (error) {
+        return {success: false, message: error?.response?.data?.message || error.message}
+    }
+}
+
+export const loginSeller = async (loginData) => {
+    try {
+        const res = await api.post('/user/seller/login', loginData);
+        return res.data
+    } catch (error) {
+        return {success: false, message: error?.response?.data?.message || error.message}
+    }
+}
+
+export const sellerOnboarding = async (id, onBoardingData) => {
+    try {
+        const res = await api.post(`/user/seller-onboarding/${id}`, onBoardingData);
+        return res.data
+    } catch (error) {
+        return {success: false, message: error?.response?.data?.message || error.message}
+    }
+}
+
+
+export const getCustomerById = async (id) => {
+  try {
+    const res = await api.get(`/user/customer/${id}`);
+    return res.data;
+  } catch (error) {
+    return {
+      success: false,
+      message: error?.response?.data?.message || error.message,
+    };
+  }
+};
+
+export const getCustomerStats = async (id) => {
+  try {
+    const res = await api.get(`/user/customer/stats/${id}`);
+    return res.data;
+  } catch (error) {
+    return {
+      success: false,
+      message: error?.response?.data?.message || error.message,
+    };
+  }
+};
+
+export const getCustomerOrders = async (id) => {
+  try {
+    const res = await api.get(`/user/customer/orders/${id}`);
+    return res.data;
+  } catch (error) {
+    return {
+      success: false,
+      message: error?.response?.data?.message || error.message,
+    };
+  }
+};
+
+export const updateCustomer = async (id, updateData) => {
+  try {
+    const res = await api.put(`/user/customer/update/${id}`, updateData);
+    return res.data;
+  } catch (error) {
+    return {
+      success: false,
+      message: error?.response?.data?.message || error.message,
+    };
+  }
+};
+export const getCustomerAddresses = async (id) => {
+  try {
+    const res = await api.get(`/user/customer/addresses/${id}`);
+    return res.data;
+  } catch (error) {
+    return {
+      success: false,
+      message: error?.response?.data?.message || error.message,
+    };
+  }
+};
