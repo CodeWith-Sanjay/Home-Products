@@ -46,6 +46,13 @@ export const loginSeller = async (req, res) => {
     }
 
     const user = existingUser.rows[0];
+    
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your seller account has been restricted. Please contact administration.'
+      });
+    }
 
     const passwordMatch = await pool.query("SELECT crypt($1, $2) = $2 AS match", [password, user.password_hash])
     if (!passwordMatch.rows[0].match) {
@@ -152,6 +159,13 @@ export const registerSeller = async (req, res) => {
       ]
     );
 
+    // Create Admin Notification for New Seller
+    await pool.query(
+      `INSERT INTO notifications (notification_id, type, message, created_at, is_read)
+       VALUES (gen_random_uuid(), 'new_seller', $1, NOW(), false)`,
+      [`New Seller Registration: ${full_name} (${store_name}) has joined the platform!`]
+    );
+
     return res.status(201).json({
       success: true,
       message: "Seller registered successfully",
@@ -235,6 +249,15 @@ export const sellerOnboarding = async (req, res) => {
       ]
     );
 
+    // 4. Create Default Pickup Location for Shiprocket
+    await pool.query(
+      `INSERT INTO seller_pickup_location (
+        pickup_id, seller_id, location_name, contact_name, contact_phone, 
+        address_line_1, city, state, pincode, is_default, is_active, created_at
+      ) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, true, true, NOW())`,
+      [sellerId, 'Primary Warehouse', businessName || storeName, sellerCheck.rows[0].phone, address_line1, city, state, pincode]
+    );
+
     await pool.query(
       `UPDATE sellers 
        SET store_name = $1, store_logo = $2, store_description = $3, aadhar = $4, pan = $5, gstin = $6, is_verified = true 
@@ -268,26 +291,38 @@ export const getSellerStats = async (req, res) => {
 
     const statsResult = await pool.query(`
       SELECT 
-        (SELECT COUNT(*) FROM products WHERE seller_id = $1) as total_products,
-        (SELECT COUNT(*) FROM order_sellers WHERE seller_id = $1) as total_orders,
-        (SELECT COALESCE(SUM(seller_subtotal), 0) FROM order_sellers WHERE seller_id = $1) as total_revenue,
-        (SELECT COUNT(DISTINCT o.customer_id) 
-         FROM orders o 
-         JOIN order_sellers os ON o.order_id = os.order_id 
-         WHERE os.seller_id = $1) as total_customers,
+        (
+          SELECT 
+            (SELECT COUNT(*) FROM products WHERE seller_id = $1) + 
+            (SELECT COUNT(*) FROM product_variants pv JOIN products p ON pv.product_id = p.product_id WHERE p.seller_id = $1)
+        ) as total_products,
         (SELECT COUNT(*) 
          FROM order_sellers os 
          JOIN orders o ON os.order_id = o.order_id 
-         WHERE os.seller_id = $1 AND o.order_status NOT IN ('delivered', 'cancelled')) as pending_orders,
+         WHERE os.seller_id = $1 AND o.order_status != 'Cancelled') as total_orders,
+        (SELECT COALESCE(SUM(seller_subtotal), 0) 
+         FROM order_sellers os 
+         JOIN orders o ON os.order_id = o.order_id 
+         WHERE os.seller_id = $1 AND o.order_status != 'Cancelled') as total_revenue,
+        (SELECT COUNT(DISTINCT o.customer_id) 
+         FROM orders o 
+         JOIN order_sellers os ON o.order_id = os.order_id 
+         WHERE os.seller_id = $1 AND o.order_status != 'Cancelled') as total_customers,
+        (SELECT COUNT(*) 
+         FROM order_sellers os 
+         JOIN orders o ON os.order_id = o.order_id 
+         WHERE os.seller_id = $1 AND o.order_status NOT IN ('Delivered', 'Cancelled')) as pending_orders,
         (SELECT COALESCE(SUM(seller_subtotal), 0) 
          FROM order_sellers os 
          JOIN orders o ON os.order_id = o.order_id 
          WHERE os.seller_id = $1 
+         AND o.order_status != 'Cancelled'
          AND o.placed_at >= DATE_TRUNC('month', NOW())) as revenue_this_month,
         (SELECT COALESCE(SUM(seller_subtotal), 0) 
          FROM order_sellers os 
          JOIN orders o ON os.order_id = o.order_id 
          WHERE os.seller_id = $1 
+         AND o.order_status != 'Cancelled'
          AND o.placed_at >= DATE_TRUNC('month', NOW() - INTERVAL '1 month') 
          AND o.placed_at < DATE_TRUNC('month', NOW())) as revenue_last_month
     `, [sellerId]);
@@ -351,43 +386,16 @@ export const getSellerDashboardData = async (req, res) => {
     // 2. If empty, fill it from existing orders
     if (dailyFinances.rows.length === 0) {
       console.log(`Daily finances empty for seller ${sellerId}, populating from orders...`);
+      await populateFinancesFromOrders(sellerId);
       
-      const orderAggregation = await pool.query(`
-        SELECT 
-          DATE(o.placed_at) as order_date,
-          SUM(os.seller_subtotal) as daily_revenue
-        FROM orders o
-        JOIN order_sellers os ON o.order_id = os.order_id
-        WHERE os.seller_id = $1
-        GROUP BY order_date
-        ORDER BY order_date ASC
+      // Re-fetch
+      dailyFinances = await pool.query(`
+        SELECT TO_CHAR(date, 'DD Mon') as name, total_revenue as value
+        FROM daily_finances
+        WHERE seller_id = $1
+        AND date >= NOW() - INTERVAL '30 days'
+        ORDER BY date ASC
       `, [sellerId]);
-
-      if (orderAggregation.rows.length > 0) {
-        // Insert into daily_finances
-        for (const row of orderAggregation.rows) {
-          await pool.query(`
-            INSERT INTO daily_finances (daily_finance_id, seller_id, date, total_revenue, platform_commission, net_seller_earnings)
-            VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
-            ON CONFLICT (seller_id, date) DO NOTHING
-          `, [
-            sellerId, 
-            row.order_date, 
-            row.daily_revenue, 
-            Number(row.daily_revenue) * 0.1, // 10% commission fallback
-            Number(row.daily_revenue) * 0.9
-          ]);
-        }
-
-        // Re-fetch
-        dailyFinances = await pool.query(`
-          SELECT TO_CHAR(date, 'DD Mon') as name, total_revenue as value
-          FROM daily_finances
-          WHERE seller_id = $1
-          AND date >= NOW() - INTERVAL '30 days'
-          ORDER BY date ASC
-        `, [sellerId]);
-      }
     }
 
     const revenueData = dailyFinances.rows;
@@ -397,6 +405,7 @@ export const getSellerDashboardData = async (req, res) => {
       FROM orders o
       JOIN order_sellers os ON o.order_id = os.order_id
       WHERE os.seller_id = $1
+      AND o.order_status != 'Cancelled'
       AND o.placed_at >= NOW() - INTERVAL '7 days'
       GROUP BY name, DATE_TRUNC('day', o.placed_at)
       ORDER BY DATE_TRUNC('day', o.placed_at)
@@ -505,7 +514,7 @@ export const getSellerPayments = async (req, res) => {
 
     const earnings = await pool.query(`
       SELECT 
-        COALESCE(SUM(seller_earnings), 0) as total_earnings,
+        COALESCE(SUM(CASE WHEN status != 'Cancelled' THEN seller_earnings ELSE 0 END), 0) as total_earnings,
         COALESCE(SUM(CASE WHEN status = 'Pending' THEN seller_earnings ELSE 0 END), 0) as pending_payouts,
         COALESCE(SUM(CASE WHEN status = 'Paid' THEN seller_earnings ELSE 0 END), 0) as completed_payouts
       FROM seller_commissions 
@@ -542,24 +551,9 @@ export const getSellerFinanceAnalytics = async (req, res) => {
   try {
     const { id: sellerId } = req.params;
 
-    // Helper to ensure daily finances exist
     const ensureDaily = async () => {
-      const check = await pool.query("SELECT 1 FROM daily_finances WHERE seller_id = $1 LIMIT 1", [sellerId]);
-      if (check.rows.length === 0) {
-        console.log("Populating daily finances for analytics...");
-        const orderAggregation = await pool.query(`
-          SELECT DATE(o.placed_at) as order_date, SUM(os.seller_subtotal) as daily_revenue
-          FROM orders o JOIN order_sellers os ON o.order_id = os.order_id
-          WHERE os.seller_id = $1 GROUP BY order_date
-        `, [sellerId]);
-        for (const row of orderAggregation.rows) {
-          await pool.query(`
-            INSERT INTO daily_finances (daily_finance_id, seller_id, date, total_revenue, platform_commission, net_seller_earnings)
-            VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
-            ON CONFLICT (seller_id, date) DO NOTHING
-          `, [sellerId, row.order_date, row.daily_revenue, Number(row.daily_revenue) * 0.1, Number(row.daily_revenue) * 0.9]);
-        }
-      }
+      // Always ensure daily finances are synced for the last 30 days to account for recent cancellations
+      await populateFinancesFromOrders(sellerId, 30);
     };
 
     await ensureDaily();
@@ -611,7 +605,8 @@ export const getSellerFinanceAnalytics = async (req, res) => {
         SELECT p.payment_method as name, COUNT(*) as value
         FROM payments p
         JOIN order_sellers os ON p.order_id = os.order_id
-        WHERE os.seller_id = $1
+        JOIN orders o ON p.order_id = o.order_id
+        WHERE os.seller_id = $1 AND o.order_status != 'Cancelled'
         GROUP BY p.payment_method
     `, [sellerId]);
 
@@ -626,7 +621,7 @@ export const getSellerFinanceAnalytics = async (req, res) => {
             SELECT o.customer_id, COUNT(DISTINCT o.order_id) as order_count
             FROM orders o
             JOIN order_sellers os ON o.order_id = os.order_id
-            WHERE os.seller_id = $1
+            WHERE os.seller_id = $1 AND o.order_status != 'Cancelled'
             GROUP BY o.customer_id
         )
         SELECT 
@@ -658,9 +653,57 @@ export const getSellerFinanceAnalytics = async (req, res) => {
   }
 };
 
+/**
+ * Populates or updates daily_finances from the orders table.
+ * @param {string} sellerId 
+ * @param {number} days - Number of recent days to sync (null for all time)
+ */
+async function populateFinancesFromOrders(sellerId, days = null) {
+  let query = `
+    SELECT 
+      DATE(o.placed_at) as order_date,
+      SUM(os.seller_subtotal) as daily_revenue
+    FROM orders o
+    JOIN order_sellers os ON o.order_id = os.order_id
+    WHERE os.seller_id = $1
+    AND o.order_status != 'Cancelled'
+  `;
+  const params = [sellerId];
+
+  if (days) {
+    query += ` AND o.placed_at >= NOW() - INTERVAL '${days} days'`;
+  }
+
+  query += ` GROUP BY order_date ORDER BY order_date ASC`;
+
+  const orderAggregation = await pool.query(query, params);
+
+  for (const row of orderAggregation.rows) {
+    await pool.query(`
+      INSERT INTO daily_finances (daily_finance_id, seller_id, date, total_revenue, platform_commission, net_seller_earnings)
+      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
+      ON CONFLICT (seller_id, date) 
+      DO UPDATE SET 
+        total_revenue = EXCLUDED.total_revenue,
+        platform_commission = EXCLUDED.platform_commission,
+        net_seller_earnings = EXCLUDED.net_seller_earnings
+    `, [
+      sellerId,
+      row.order_date,
+      row.daily_revenue,
+      Number(row.daily_revenue) * 0.1,
+      Number(row.daily_revenue) * 0.9
+    ]);
+  }
+}
+
+/**
+ * Hierarchical Finance Aggregation System
+ * Works by rolling up data from the lowest level (Daily) to the highest (Annual).
+ */
 async function ensureAllFinances(sellerId) {
   try {
-    // 1. Aggregate Daily into Weekly
+    // 1. Rollup Daily -> Weekly
     await pool.query(`
       INSERT INTO weekly_finances (weekly_finance_id, seller_id, week_number, year, total_revenue, platform_commission, net_seller_earnings)
       SELECT gen_random_uuid(), seller_id, EXTRACT(WEEK FROM date)::int, EXTRACT(YEAR FROM date)::int, SUM(total_revenue), SUM(platform_commission), SUM(net_seller_earnings)
@@ -673,7 +716,7 @@ async function ensureAllFinances(sellerId) {
         net_seller_earnings = EXCLUDED.net_seller_earnings
     `, [sellerId]);
 
-    // 2. Aggregate Daily into Monthly
+    // 2. Rollup Daily -> Monthly
     await pool.query(`
       INSERT INTO month_finances (monthly_finance_id, seller_id, month_number, year, total_revenue, platform_commission, net_seller_earnings)
       SELECT gen_random_uuid(), seller_id, EXTRACT(MONTH FROM date)::int, EXTRACT(YEAR FROM date)::int, SUM(total_revenue), SUM(platform_commission), SUM(net_seller_earnings)
@@ -686,7 +729,7 @@ async function ensureAllFinances(sellerId) {
         net_seller_earnings = EXCLUDED.net_seller_earnings
     `, [sellerId]);
 
-    // 3. Aggregate Monthly into Quarterly
+    // 3. Rollup Monthly -> Quarterly
     await pool.query(`
       INSERT INTO quarterly_finances (quarterly_finance_id, seller_id, quarter_number, year, total_revenue, platform_commission, net_seller_earnings)
       SELECT gen_random_uuid(), seller_id, EXTRACT(QUARTER FROM TO_DATE(month_number::text, 'MM'))::int, year, SUM(total_revenue), SUM(platform_commission), SUM(net_seller_earnings)
@@ -699,7 +742,7 @@ async function ensureAllFinances(sellerId) {
         net_seller_earnings = EXCLUDED.net_seller_earnings
     `, [sellerId]);
 
-    // 4. Aggregate Quarterly into Half Yearly
+    // 4. Rollup Quarterly -> Half Yearly
     await pool.query(`
       INSERT INTO half_yearly_finances (half_yearly_finances_id, seller_id, half_number, year, total_revenue, platform_commission, net_seller_earnings)
       SELECT gen_random_uuid(), seller_id, (CASE WHEN quarter_number <= 2 THEN 1 ELSE 2 END), year, SUM(total_revenue), SUM(platform_commission), SUM(net_seller_earnings)
@@ -712,7 +755,7 @@ async function ensureAllFinances(sellerId) {
         net_seller_earnings = EXCLUDED.net_seller_earnings
     `, [sellerId]);
 
-    // 5. Aggregate Half Yearly into Annual
+    // 5. Rollup Half Yearly -> Annual
     await pool.query(`
       INSERT INTO annual_finances (annual_finance_id, seller_id, year, total_revenue, platform_commission, net_seller_earnings)
       SELECT gen_random_uuid(), seller_id, year, SUM(total_revenue), SUM(platform_commission), SUM(net_seller_earnings)
@@ -725,48 +768,34 @@ async function ensureAllFinances(sellerId) {
         net_seller_earnings = EXCLUDED.net_seller_earnings
     `, [sellerId]);
 
-    // 6. LINK FOREIGN KEYS (Child -> Parent)
-    
-    // 6. LINK FOREIGN KEYS (Child -> Parent & Parent -> Child)
+    // 6. Maintenance: Link Foreign Keys for Drill-down Reporting
     
     // Link Monthly to Quarterly
     await pool.query(`
-      WITH latest_q AS (
-        SELECT quarterly_finance_id, seller_id, quarter_number, year FROM quarterly_finances WHERE seller_id = $1
-      )
       UPDATE month_finances m
       SET quarterly_finance_id = q.quarterly_finance_id
-      FROM latest_q q
-      WHERE m.seller_id = q.seller_id 
-      AND m.year = q.year 
+      FROM quarterly_finances q
+      WHERE m.seller_id = q.seller_id AND m.year = q.year 
       AND EXTRACT(QUARTER FROM TO_DATE(m.month_number::text, 'MM'))::int = q.quarter_number
       AND m.seller_id = $1
     `, [sellerId]);
 
     // Link Quarterly to Half Yearly
     await pool.query(`
-      WITH latest_h AS (
-        SELECT half_yearly_finances_id, seller_id, half_number, year FROM half_yearly_finances WHERE seller_id = $1
-      )
       UPDATE quarterly_finances q
       SET half_yearly_finance_id = h.half_yearly_finances_id
-      FROM latest_h h
-      WHERE q.seller_id = h.seller_id 
-      AND q.year = h.year 
+      FROM half_yearly_finances h
+      WHERE q.seller_id = h.seller_id AND q.year = h.year 
       AND (CASE WHEN q.quarter_number <= 2 THEN 1 ELSE 2 END)::int = h.half_number
       AND q.seller_id = $1
     `, [sellerId]);
 
     // Link Half Yearly to Annual
     await pool.query(`
-      WITH latest_a AS (
-        SELECT annual_finance_id, seller_id, year FROM annual_finances WHERE seller_id = $1
-      )
       UPDATE half_yearly_finances h
       SET annual_finance_id = a.annual_finance_id
-      FROM latest_a a
-      WHERE h.seller_id = a.seller_id 
-      AND h.year = a.year
+      FROM annual_finances a
+      WHERE h.seller_id = a.seller_id AND h.year = a.year
       AND h.seller_id = $1
     `, [sellerId]);
 

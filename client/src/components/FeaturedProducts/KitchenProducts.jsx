@@ -16,8 +16,8 @@ const KitchenProducts = () => {
     useContext(WishListContext);
   const {products} = useContext(ProductContext);
 
-  const kitchenProducts = products.filter(
-    (product) => product.room === "kitchen"
+  const kitchenProducts = (products || []).filter(
+    (product) => product.room === "Kitchen"
   );
 
   useEffect(() => {
@@ -79,6 +79,12 @@ const KitchenProducts = () => {
               />
 
               <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition" />
+              
+              {product.discountPercent > 0 && (
+                <span className="absolute top-3 left-3 bg-red-500 text-white text-[10px] font-black px-2 py-1 rounded-full shadow-lg z-10">
+                  -{product.discountPercent}%
+                </span>
+              )}
 
               <div
                 className={`absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3 transition duration-300
@@ -135,13 +141,17 @@ const KitchenProducts = () => {
 
               <div className="flex items-center gap-2">
                 <span className="text-gray-400 line-through text-sm">
-                  ₹{product.price}
+                  ₹{product.price?.toLocaleString()}
                 </span>
                 <span className="text-lg font-semibold text-gray-900">
-                  ₹{product.discountPrice}
+                  ₹{product.discountPrice?.toLocaleString()}
                 </span>
               </div>
 
+              <p className="text-sm text-yellow-600">
+                ⭐ {product.rating || "0.0"}{" "}
+                <span className="text-gray-400">({product.reviewsCount || 0})</span>
+              </p>
             </div>
           </div>
         ))}

@@ -18,9 +18,10 @@ export const addVariants = async (variantData) => {
     }
 }
 
-export const getProducts = async () => {
+export const getProducts = async (sellerId = null) => {
     try {
-        const res = await api.get('/product/allproducts');
+        const url = sellerId ? `/product/allproducts?seller_id=${sellerId}` : '/product/allproducts';
+        const res = await api.get(url);
         return res.data
     } catch (error) {
         return { success: false, error: error?.response?.data?.message || error.message }
@@ -48,6 +49,15 @@ export const getProductBySlug = async (slug) => {
 export const getCategories = async () => {
     try {
         const res = await api.get('/product/categories');
+        return res.data
+    } catch (error) {
+        return { success: false, error: error?.response?.data?.message || error.message }
+    }
+}
+
+export const updateVariant = async (id, variantData) => {
+    try {
+        const res = await api.put(`/product/variant/${id}`, variantData);
         return res.data
     } catch (error) {
         return { success: false, error: error?.response?.data?.message || error.message }

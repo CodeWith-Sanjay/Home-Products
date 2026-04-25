@@ -4,7 +4,7 @@ import { customerOnboarding } from "../../services/authService";
 
 const CustomerOnboarding = () => {
 
-    const navigate = useNavigate();
+  const navigate = useNavigate();
 
   const auth = JSON.parse(localStorage.getItem("auth"));
 
@@ -34,44 +34,43 @@ const CustomerOnboarding = () => {
   };
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (
-    !form.address_line_1 ||
-    !form.city ||
-    !form.state ||
-    !form.pincode
-  ) {
-    setError("Please fill all required fields");
-    return;
-  }
-
-  setError("");
-  setLoading(true);
-
-  try {
-    const res = await customerOnboarding(userId, form);
-
-    if (!res.success) {
-      setError(res.message);
+    if (
+      !form.address_line_1 ||
+      !form.city ||
+      !form.state ||
+      !form.pincode
+    ) {
+      setError("Please fill all required fields");
       return;
     }
 
-    navigate("/");
+    setError("");
+    setLoading(true);
 
-  } catch (err) {
-    console.log(err);
-    setError("Something went wrong");
-  } finally {
-    setLoading(false);
-  }
-};
+    try {
+      const res = await customerOnboarding(userId, form);
+
+      if (!res.success) {
+        setError(res.message);
+        return;
+      }
+
+      navigate("/");
+
+    } catch (err) {
+      console.log(err);
+      setError("Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  };
   const inputClass =
     "w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition";
 
   return (
     <div className="min-h-screen flex bg-gray-50">
-      {/* LEFT SIDE (INFO PANEL) */}
       <div className="hidden md:flex w-1/2 bg-gradient-to-br from-blue-600 to-blue-800 text-white flex-col justify-center px-12">
         <h2 className="text-4xl font-bold mb-4">Almost There</h2>
         <p className="text-lg opacity-90">
@@ -95,7 +94,6 @@ const CustomerOnboarding = () => {
         </div>
       </div>
 
-      {/* RIGHT SIDE (FORM) */}
       <div className="flex-1 flex items-center justify-center px-4 py-10">
         <div className="w-full max-w-lg bg-white shadow-xl rounded-3xl p-8 border border-gray-100">
           <h2 className="text-2xl font-bold text-gray-800 mb-2">
@@ -134,7 +132,6 @@ const CustomerOnboarding = () => {
               className={inputClass}
             />
 
-            {/* GRID */}
             <div className="grid grid-cols-2 gap-4">
               <input
                 name="city"
@@ -169,7 +166,6 @@ const CustomerOnboarding = () => {
               />
             </div>
 
-            {/* CHECKBOX */}
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <input
                 type="checkbox"
@@ -183,15 +179,13 @@ const CustomerOnboarding = () => {
 
             {error && <p className="text-red-600 text-sm font-medium">{error}</p>}
 
-            {/* BUTTON */}
             <button
               type="submit"
               disabled={loading}
               className={`w-full py-4 mt-2 rounded-xl text-white font-extrabold text-lg transition-all duration-300
-                ${
-                  loading
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100 hover:shadow-blue-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]"
+                ${loading
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100 hover:shadow-blue-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]"
                 }
               `}
             >

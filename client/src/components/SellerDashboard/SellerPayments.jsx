@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { getSellerPayments } from "../../services/sellerService";
+import { getSellerEarningsSummary, getSellerPayoutHistory } from "../../services/payoutService";
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -25,9 +25,20 @@ const SellerPayments = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const res = await getSellerPayments(sellerId);
-        if (res.success) {
-          setData(res.data);
+        const [summaryRes, historyRes] = await Promise.all([
+          getSellerEarningsSummary(sellerId),
+          getSellerPayoutHistory(sellerId)
+        ]);
+
+        if (summaryRes.success && historyRes.success) {
+          setData({
+            summary: {
+              total_earnings: summaryRes.data.total_earnings,
+              pending_delivery: summaryRes.data.pending_earnings,
+              completed_payouts: summaryRes.data.paid_earnings
+            },
+            transactions: historyRes.data
+          });
         }
       } catch (error) {
         console.error("Failed to fetch payment data", error);
@@ -55,11 +66,11 @@ const SellerPayments = () => {
       desc: "Gross revenue after commission"
     },
     { 
-      title: "Pending Payout", 
-      value: `₹${Number(data.summary.pending_payouts).toLocaleString()}`, 
+      title: "Pending Delivery", 
+      value: `₹${Number(data.summary.pending_delivery).toLocaleString()}`, 
       icon: <PendingActionsIcon />, 
       color: "bg-orange-500",
-      desc: "Earnings currently in process"
+      desc: "Earnings from orders not yet delivered"
     },
     { 
       title: "Completed Payout", 
@@ -114,32 +125,28 @@ const SellerPayments = () => {
               </thead>
               <tbody className="text-sm text-gray-600">
                 {data.transactions.map((tx) => (
-                  <tr key={tx.id} className="group hover:bg-gray-50/70 transition-all">
+                  <tr key={tx.payout_id} className="group hover:bg-gray-50/70 transition-all">
                     <td className="py-6 font-black text-gray-400 group-hover:text-blue-600 transition-colors uppercase">
-                      #{tx.id.slice(0, 10)}
+                      #{tx.payout_id.slice(0, 10)}
                     </td>
                     <td className="py-6">
-                      <div className="font-bold text-gray-800">{new Date(tx.date).toLocaleDateString()}</div>
-                      <div className="text-[10px] text-gray-400 font-bold mt-0.5 uppercase tracking-wider">{new Date(tx.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                      <div className="font-bold text-gray-800">{new Date(tx.created_at).toLocaleDateString()}</div>
+                      <div className="text-[10px] text-gray-400 font-bold mt-0.5 uppercase tracking-wider">{new Date(tx.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                     </td>
                     <td className="py-6 font-semibold text-gray-600 capitalize">
-                      {tx.method === 'cod' ? 'Cash on Delivery' : tx.method === 'razorpay' ? 'Razorpay' : tx.method}
+                      {tx.payment_method}
                     </td>
                     <td className="py-6 font-black text-gray-900 text-right">
                       ₹{Number(tx.amount).toLocaleString()}
                     </td>
-                    <td className="py-6 text-center">
-                      <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border
-                        ${tx.customer_payment_status === 'Paid' ? 'bg-green-50 text-green-700 border-green-200' : 
-                          'bg-orange-50 text-orange-700 border-orange-200'}`}>
-                        {tx.customer_payment_status || 'Pending'}
-                      </span>
+                    <td className="py-6 text-center text-xs font-bold text-gray-400 uppercase">
+                      N/A
                     </td>
                     <td className="py-6 text-center">
                       <span className={`px-5 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest
-                        ${tx.payout_status === 'Paid' ? 'bg-blue-100 text-blue-700' : 
-                          tx.payout_status === 'Pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                        {tx.payout_status}
+                        ${tx.status === 'completed' || tx.status === 'Paid' ? 'bg-blue-100 text-blue-700' : 
+                          tx.status === 'pending' || tx.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                        {tx.status}
                       </span>
                     </td>
                   </tr>

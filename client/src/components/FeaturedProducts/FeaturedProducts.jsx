@@ -47,7 +47,7 @@ const FeaturedProducts = () => {
     const productId = product.product_id || product.id;
     const variantId = product.variantId || product.variant_id || null;
     const opKey = productId + (variantId || "");
-    
+
     if (pendingCartIds.has(opKey)) return;
 
     setPendingCartIds((prev) => new Set([...prev, opKey]));
@@ -105,39 +105,36 @@ const FeaturedProducts = () => {
                 <img
                   src={product.thumbnail}
                   alt={product.name}
-                  className={`max-w-full max-h-full object-contain transition-transform duration-500 group-hover:scale-110 ${
-                    hoveredProduct === product.id ? "scale-110" : "scale-100"
-                  }`}
+                  className={`max-w-full max-h-full object-contain transition-transform duration-500 group-hover:scale-110 ${hoveredProduct === product.id ? "scale-110" : "scale-100"
+                    }`}
                 />
 
                 <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition" />
 
                 {product.discountPercent > 0 && (
-                  <span className="absolute top-3 left-3 bg-red-500 text-white text-xs px-2 py-1 rounded-full shadow">
+                  <span className="absolute top-3 left-3 bg-red-500 text-white text-[10px] font-black px-2 py-1 rounded-full shadow-lg z-10">
                     -{product.discountPercent}%
                   </span>
                 )}
 
                 {/* Action buttons — slide up on hover */}
                 <div
-                  className={`absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3 transition-all duration-300 ${
-                    hoveredProduct === product.id
-                      ? "opacity-100 translate-y-0"
-                      : "opacity-0 translate-y-4"
-                  }`}
+                  className={`absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3 transition-all duration-300 ${hoveredProduct === product.id
+                    ? "opacity-100 translate-y-0"
+                    : "opacity-0 translate-y-4"
+                    }`}
                 >
                   {/* Cart button */}
                   <button
                     onClick={(e) => handleAddToCart(e, product)}
                     disabled={isPending}
                     title={inCart ? "Remove from cart" : "Add to cart"}
-                    className={`p-2 rounded-full shadow-md transition-all duration-200 active:scale-90 ${
-                      isPending
-                        ? "bg-blue-400 text-white scale-110 animate-pulse"
-                        : inCart
+                    className={`p-2 rounded-full shadow-md transition-all duration-200 active:scale-90 ${isPending
+                      ? "bg-blue-400 text-white scale-110 animate-pulse"
+                      : inCart
                         ? "bg-blue-600 text-white scale-110"
                         : "bg-white text-gray-800 hover:bg-blue-600 hover:text-white hover:scale-110"
-                    }`}
+                      }`}
                   >
                     {inCart && !isPending ? (
                       <CheckIcon fontSize="small" />
@@ -150,11 +147,10 @@ const FeaturedProducts = () => {
                   <button
                     onClick={(e) => handleAddToWishList(e, product)}
                     title={inWish ? "Remove from wishlist" : "Add to wishlist"}
-                    className={`p-2 rounded-full shadow-md transition-all duration-200 active:scale-90 ${
-                      inWish
-                        ? "bg-pink-600 text-white scale-110"
-                        : "bg-white text-gray-800 hover:bg-pink-600 hover:text-white hover:scale-110"
-                    }`}
+                    className={`p-2 rounded-full shadow-md transition-all duration-200 active:scale-90 ${inWish
+                      ? "bg-pink-600 text-white scale-110"
+                      : "bg-white text-gray-800 hover:bg-pink-600 hover:text-white hover:scale-110"
+                      }`}
                   >
                     {inWish ? (
                       <FavoriteIcon fontSize="small" />
@@ -182,8 +178,8 @@ const FeaturedProducts = () => {
                 </div>
 
                 <p className="text-sm text-yellow-600">
-                  ⭐ {product.rating}{" "}
-                  <span className="text-gray-400">({product.reviewsCount})</span>
+                  ⭐ {product.rating || "0.0"}{" "}
+                  <span className="text-gray-400">({product.reviewsCount || 0})</span>
                 </p>
               </div>
             </div>

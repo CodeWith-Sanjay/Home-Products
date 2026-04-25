@@ -1,4 +1,4 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 import HomeLogo from "../../assets/HomeLogo.png";
@@ -7,11 +7,15 @@ import KeyboardArrowDownOutlinedIcon from "@mui/icons-material/KeyboardArrowDown
 import PermIdentityIcon from "@mui/icons-material/PermIdentity";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import FavoriteBorderSharpIcon from "@mui/icons-material/FavoriteBorderSharp";
+import SearchIcon from "@mui/icons-material/Search";
 
 import { CartContext } from "../../context/CartContext/CartContext";
 import { WishListContext } from "../../context/WishListContext/WishListContext";
 
 import { animation, navMainIcon } from "../../utils/UIStyles";
+import { api } from "../../services/api";
+import NotificationsDropdown from "./NotificationsDropdown";
+import { useAuth } from "../../context/AuthContext";
 
 const menuCategories = [
   {
@@ -27,22 +31,53 @@ const menuCategories = [
 const NavMain = ({ sidebarOpen, setSidebarOpen }) => {
   const { cart } = useContext(CartContext);
   const { wishList } = useContext(WishListContext);
-
-  const auth = JSON.parse(localStorage.getItem("auth"));
-  const seller = JSON.parse(localStorage.getItem("seller"));
-  const currentUser = auth || seller;
-  const isSeller = !!seller;
+  const { currentUser, logoutUser } = useAuth();
+  const isSeller = currentUser?.role === 'seller';
+  const isAdmin = currentUser?.role === 'admin';
 
   const navigate = useNavigate();
+  const [searchTerm, setSearchTerm] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [liveResults, setLiveResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (searchTerm.trim().length > 1) {
+        setIsSearching(true);
+        try {
+          const res = await api.get(`/product/search?q=${encodeURIComponent(searchTerm.trim())}`);
+          if (res.data.success) {
+            setLiveResults(res.data.data.slice(0, 6)); // Show top 6 results
+          }
+        } catch (error) {
+          console.error("Live search error:", error);
+        } finally {
+          setIsSearching(false);
+        }
+      } else {
+        setLiveResults([]);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm]);
+
+  const handleSearch = (e) => {
+    if (e.key === "Enter" || e.type === "click") {
+      if (searchTerm.trim()) {
+        navigate(`/search?q=${encodeURIComponent(searchTerm.trim())}`);
+      }
+    }
+  };
 
   return (
     <div
       className={`w-full bg-white flex items-center justify-between px-10 z-50 md:px-0 md:justify-around py-2 ${animation}`}
     >
       <div className="flex">
-        <div 
+        <div
           onClick={() => navigate("/")}
           className="text-2xl text-gray-800 text-center font-semibold cursor-pointer"
         >
@@ -86,24 +121,82 @@ const NavMain = ({ sidebarOpen, setSidebarOpen }) => {
         </div>
       </div>
 
-      <div className="hidden md:flex gap-0">
+      <div className="hidden md:flex gap-0 items-center relative group">
         <input
-          className={`w-full lg:min-w-sm outline-0 text-gray-800 border bg-white border-gray-200 hover:border-gray-600 py-3 pr-10 px-4 rounded-full ${animation}`}
+          className={`w-full lg:min-w-sm outline-0 text-gray-800 border bg-white border-gray-200 focus:border-blue-600 py-3 pr-12 px-6 rounded-full shadow-sm hover:shadow-md transition-all duration-300`}
           type="text"
-          placeholder="Search products..."
+          placeholder="Search for premium home products..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          onKeyDown={handleSearch}
         />
+        <div
+          onClick={handleSearch}
+          className="absolute right-4 text-gray-400 hover:text-blue-600 cursor-pointer transition-colors"
+        >
+          {isSearching ? <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div> : <SearchIcon />}
+        </div>
+
+        {/* Live Search Results Dropdown */}
+        {searchTerm.trim().length > 1 && (liveResults.length > 0 || isSearching) && (
+          <div className="absolute top-full left-0 right-0 mt-3 bg-white shadow-2xl rounded-3xl overflow-hidden z-[100] border border-gray-100 animate-in slide-in-from-top-2 duration-300">
+            <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Quick Results</span>
+              {liveResults.length > 0 && (
+                <button
+                  onClick={() => navigate(`/search?q=${encodeURIComponent(searchTerm)}`)}
+                  className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline"
+                >
+                  View All
+                </button>
+              )}
+            </div>
+            <div className="max-h-[400px] overflow-y-auto">
+              {liveResults.map((product) => (
+                <div
+                  key={product.product_id}
+                  onClick={() => {
+                    navigate(`/product/${product.slug}`);
+                    setSearchTerm("");
+                    setLiveResults([]);
+                  }}
+                  className="p-4 hover:bg-blue-50 transition-colors flex gap-4 cursor-pointer group"
+                >
+                  <div className="w-14 h-14 bg-gray-100 rounded-xl overflow-hidden flex-shrink-0">
+                    <img
+                      src={product.pi_images?.[0]?.image_url || 'https://via.placeholder.com/100'}
+                      alt={product.name}
+                      className="w-full h-full object-cover group-hover:scale-110 transition duration-500"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h5 className="text-sm font-bold text-gray-900 truncate group-hover:text-blue-600 transition-colors">
+                      {product.name}
+                    </h5>
+                    <p className="text-xs text-gray-500 font-bold mt-1">₹{Number(product.price).toLocaleString()}</p>
+                  </div>
+                </div>
+              ))}
+              {!isSearching && liveResults.length === 0 && (
+                <div className="p-10 text-center">
+                  <p className="text-gray-400 text-sm font-bold italic">No matches found for "{searchTerm}"</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="hidden md:flex gap-9 text-gray-800">
+      <div className="hidden md:flex sm:gap-2 md:gap-5 lg:gap-7 justify-center items-center  text-gray-800">
         <div
           className={`hidden relative md:flex items-center cursor-pointer`}
           onMouseEnter={() => setShowProfileDropdown(true)}
           onMouseLeave={() => setShowProfileDropdown(false)}
         >
           <div>
-            {auth?.profile_picture_url ? (
+            {currentUser?.profile_picture_url ? (
               <img
-                src={auth.profile_picture_url}
+                src={currentUser.profile_picture_url}
                 alt="Profile"
                 className="w-10 h-10 rounded-full object-cover border-2 border-transparent hover:border-blue-500 transition-all shadow-sm"
               />
@@ -125,14 +218,23 @@ const NavMain = ({ sidebarOpen, setSidebarOpen }) => {
               <>
                 <div className="px-4 py-2 border-b border-gray-100 mb-1">
                   <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest leading-tight">
-                    {isSeller ? "Seller Account" : "Customer Account"}
+                    {isAdmin ? "Admin Authority" : isSeller ? "Seller Account" : "Customer Account"}
                   </p>
                   <p className="text-sm font-bold text-gray-900 truncate">
-                    {currentUser.name || currentUser.business_name}
+                    {currentUser.name || currentUser.full_name || currentUser.business_name}
                   </p>
                 </div>
 
-                {!isSeller && (
+                {isAdmin && (
+                  <button
+                    onClick={() => navigate("/admin")}
+                    className="w-full text-left px-4 py-2 hover:bg-gray-100 font-bold text-blue-600"
+                  >
+                    Admin Dashboard
+                  </button>
+                )}
+
+                {!isSeller && !isAdmin && (
                   <button
                     onClick={() => navigate("/profile")}
                     className="w-full text-left px-4 py-2 hover:bg-gray-100"
@@ -141,21 +243,11 @@ const NavMain = ({ sidebarOpen, setSidebarOpen }) => {
                   </button>
                 )}
 
-                {!auth && (
-                  <button
-                    onClick={() => navigate("/seller")}
-                    className="w-full text-left px-4 py-2 hover:bg-gray-100"
-                  >
-                    Seller Portal
-                  </button>
-                )}
 
                 <button
                   onClick={() => {
-                    localStorage.removeItem("auth");
-                    localStorage.removeItem("seller");
-                    navigate("/");
-                    window.location.reload();
+                    logoutUser();
+                    window.location.href = "/";
                   }}
                   className="w-full text-left px-4 py-2 text-red-500 hover:bg-gray-100 font-bold"
                 >
@@ -179,10 +271,23 @@ const NavMain = ({ sidebarOpen, setSidebarOpen }) => {
                 >
                   Seller Login
                 </button>
+
+                <div className="border-t border-gray-50 my-1"></div>
+
+                <button
+                  onClick={() => navigate("/admin/login")}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-100 transition text-gray-400 text-[11px] font-black uppercase tracking-widest"
+                >
+                  Admin Portal
+                </button>
               </>
             )}
           </div>
         </div>
+
+        {currentUser && !isSeller && (
+          <NotificationsDropdown customerId={currentUser.id || currentUser.customer_id} />
+        )}
 
         <div className="relative">
           <button

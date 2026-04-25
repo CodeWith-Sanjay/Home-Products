@@ -32,6 +32,13 @@ export const loginCustomer = async (req, res) => {
     }
 
     const user = existingUser.rows[0];
+    
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been restricted. Please contact support.'
+      });
+    }
 
     const passwordMatch = await pool.query("SELECT crypt($1, $2) = $2 AS match", [password, user.password_hash])
     if(!passwordMatch.rows[0].match) {

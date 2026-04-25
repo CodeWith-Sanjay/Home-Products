@@ -9,11 +9,13 @@ import Card from "./Card";
 import { getCustomerStats, getCustomerOrders } from "../../services/authService";
 import { WishListContext } from "../../context/WishListContext/WishListContext";
 import { useContext } from "react";
+import { createPortal } from "react-dom";
 
 const ProfileOverview = ({ user, setActiveTab }) => {
   const { wishList } = useContext(WishListContext);
   const [statsData, setStatsData] = useState({ orders: 0, cart: 0, wishlist: 0 });
   const [recentOrder, setRecentOrder] = useState(null);
+  const [showFullImage, setShowFullImage] = useState(false);
 
   useEffect(() => {
     if (user?.customer_id) {
@@ -59,15 +61,47 @@ const ProfileOverview = ({ user, setActiveTab }) => {
       <Card>
         <div className="flex items-center gap-6">
           {user.profile_picture_url ? (
-            <img
-              src={user.profile_picture_url}
-              alt={user.full_name}
-              className="w-20 h-20 rounded-2xl object-cover shadow-md border-2 border-white"
-            />
+            <div className="relative group cursor-pointer" onClick={() => setShowFullImage(true)}>
+               <img
+                 src={user.profile_picture_url}
+                 alt={user.full_name}
+                 className="w-20 h-20 rounded-2xl object-cover shadow-md border-2 border-white hover:opacity-90 transition-all"
+               />
+               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="bg-black/40 text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg">View</span>
+               </div>
+            </div>
           ) : (
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-400 flex items-center justify-center text-white text-3xl font-bold shadow-md">
               {user.full_name?.charAt(0).toUpperCase()}
             </div>
+          )}
+
+          {/* Full Image Modal using Portal */}
+          {showFullImage && user.profile_picture_url && createPortal(
+            <div 
+              className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300"
+              style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh' }}
+              onClick={() => setShowFullImage(false)}
+            >
+              <div 
+                className="relative w-[450px] max-w-[90vw] h-[450px] max-h-[90vh] bg-white rounded-[3rem] shadow-[0_0_80px_rgba(0,0,0,0.5)] border-[12px] border-white overflow-hidden animate-in zoom-in-95 duration-300"
+                onClick={(e) => e.stopPropagation()}
+              >
+                 <button 
+                   className="absolute top-4 right-4 z-10 w-10 h-10 bg-black/20 hover:bg-black/40 backdrop-blur-md text-white rounded-full flex items-center justify-center transition-all"
+                   onClick={() => setShowFullImage(false)}
+                 >
+                    <span className="text-xl font-light">×</span>
+                 </button>
+                 <img 
+                   src={user.profile_picture_url} 
+                   alt="Full Size" 
+                   className="w-full h-full object-cover"
+                 />
+              </div>
+            </div>,
+            document.body
           )}
 
           <div>

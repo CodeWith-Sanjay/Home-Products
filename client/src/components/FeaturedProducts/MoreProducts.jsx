@@ -145,9 +145,9 @@ const MoreProducts = () => {
               </div>
 
               <p className="text-sm text-yellow-600">
-                ⭐ {product.rating}{" "}
+                ⭐ {product.rating || "0.0"}{" "}
                 <span className="text-gray-400">
-                  ({product.reviewsCount})
+                  ({product.reviewsCount || 0})
                 </span>
               </p>
 

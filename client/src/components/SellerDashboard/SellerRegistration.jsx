@@ -2,9 +2,11 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import SellerAuthLayout from "./SellerAuthLayout";
 import { sellerRegister, sendSellerOtp, verifySellerOtp } from "../../services/authService";
+import { useAuth } from "../../context/AuthContext";
 
 const SellerRegistration = () => {
   const navigate = useNavigate();
+  const { loginSeller } = useAuth();
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -94,7 +96,7 @@ const SellerRegistration = () => {
         return;
       }
 
-      localStorage.setItem("seller", JSON.stringify(res.data));
+      loginSeller(res.data);
       navigate("/seller/onboarding");
     } catch (err) {
       setError(err?.response?.data?.message || "Registration failed");

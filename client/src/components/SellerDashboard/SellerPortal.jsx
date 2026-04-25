@@ -7,14 +7,6 @@ import SellerSidebar from './SellerSidebar'
 const SellerPortal = () => {
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const seller = localStorage.getItem("seller");
-    const auth = localStorage.getItem("auth");
-
-    if (!seller || auth) {
-      navigate("/seller/login");
-    }
-  }, [navigate]);
 
   return (
     <div className="flex h-screen bg-gray-100">

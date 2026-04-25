@@ -5,13 +5,20 @@ import { useContext } from "react";
 import { CartContext } from "../../context/CartContext/CartContext";
 import { ProductContext } from "../../context/ProductContext/ProductContext";
 import { createOrder } from "../../services/orderService";
+import { cn } from "../../lib/utils";
 
-const ReviewOrder = ({ onBack, paymentMethod, total, userDetails, items }) => {
+const ReviewOrder = ({ onBack, paymentMethod, total, userDetails, items, appliedCoupon }) => {
   const navigate = useNavigate();
   const { cart, fetchCart } = useContext(CartContext);
   const { fetchProducts } = useContext(ProductContext);
 
   const user = JSON.parse(localStorage.getItem('auth'));
+  const isAdmin = user?.role === 'admin';
+
+  const subtotalValue = items.reduce((acc, item) => acc + (item.discountPrice || item.price) * (item.quantity || 1), 0);
+  const discountValue = appliedCoupon 
+    ? Math.min((subtotalValue * appliedCoupon.discount_percent) / 100, appliedCoupon.max_discount || Infinity) 
+    : 0;
 
   const sendOrderEmail = (orderId) => {
     const templateParams = {
@@ -43,10 +50,14 @@ const ReviewOrder = ({ onBack, paymentMethod, total, userDetails, items }) => {
   };
 
   const handlePlaceOrder = async () => {
+    if (isAdmin) {
+      alert("As an administrator, you cannot place orders. Please use a customer account.");
+      return;
+    }
     try {
       console.log("Preparing order data for items:", items);
       const orderData = {
-        customer_id: user.id || user.customer_id,
+        customer_id: user.id || user.customer_id || user.admin_id,
         address_details: userDetails,
         items: items.map(item => {
           if (!item.seller_id) {
@@ -61,9 +72,13 @@ const ReviewOrder = ({ onBack, paymentMethod, total, userDetails, items }) => {
           };
         }),
         payment_method: paymentMethod,
-        subtotal: items.reduce((acc, item) => acc + (item.discountPrice || item.price) * (item.quantity || 1), 0),
-        shipping_charges: paymentMethod === 'cod' ? 50 : 0,
-        tax_amount: 0,
+        subtotal: subtotalValue,
+        platform_fee: 10,
+        cod_fee: paymentMethod === "cod" ? 50 : 0,
+        tax_amount: Math.round(subtotalValue * 0.05),
+        shipping_charges: 0,
+        coupon_id: appliedCoupon?.coupon_id || null,
+        discount_amount: discountValue,
         total_amount: total
       };
 
@@ -182,12 +197,23 @@ const ReviewOrder = ({ onBack, paymentMethod, total, userDetails, items }) => {
           ← Back
         </button>
 
-        <button
-          onClick={handlePlaceOrder}
-          className="bg-green-600 text-white px-8 py-3 rounded-xl hover:bg-green-700 shadow"
-        >
-          Place Order
-        </button>
+        <div className="flex flex-col items-end gap-2">
+          {isAdmin && (
+            <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Admin Restricted</p>
+          )}
+          <button
+            onClick={handlePlaceOrder}
+            disabled={isAdmin}
+            className={cn(
+              "px-8 py-3 rounded-xl shadow transition-all font-bold",
+              isAdmin 
+                ? "bg-slate-200 text-slate-400 cursor-not-allowed" 
+                : "bg-green-600 text-white hover:bg-green-700 active:scale-95"
+            )}
+          >
+            {isAdmin ? "Restricted" : "Place Order"}
+          </button>
+        </div>
       </div>
     </div>
   );

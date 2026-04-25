@@ -1,14 +1,48 @@
-import { card } from "../../utils/UIStyles";
+import React, { useState } from "react";
+import { card, input, buttonPrimary } from "../../utils/UIStyles";
+import { validateCoupon } from "../../services/couponService";
 
 const OrderSummary = ({
   subtotal = 0,
   delivery = 0,
   gst = 0,
-  platformFee=10,
+  platformFee = 10,
   total = 0,
   paymentMethod = "razorpay",
+  onCouponApply, // Callback to pass discount up
 }) => {
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
   const codFee = paymentMethod === "cod" ? 50 : 0;
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode) return;
+    setLoading(true);
+    setError("");
+    console.log("Validating coupon:", couponCode, "with subtotal:", subtotal);
+    const res = await validateCoupon(couponCode, subtotal);
+    console.log("Validation result:", res);
+    if (res.success) {
+      setAppliedCoupon(res.data);
+      if (onCouponApply) onCouponApply(res.data);
+    } else {
+      setError(res.message);
+      setAppliedCoupon(null);
+    }
+    setLoading(false);
+  };
+
+  const discountAmount = appliedCoupon 
+    ? Math.min(
+        (subtotal * (appliedCoupon.discount_percent || 0)) / 100, 
+        appliedCoupon.max_discount || Infinity
+      ) 
+    : 0;
+
+  const finalTotal = subtotal + delivery + gst + codFee + platformFee - discountAmount;
 
   return (
     <div className={`${card} p-6 space-y-6 sticky top-10`}>
@@ -20,6 +54,43 @@ const OrderSummary = ({
         <p className="text-sm text-gray-500">
           Review your order before checkout
         </p>
+      </div>
+
+      {/* Coupon Section */}
+      <div className="space-y-3">
+        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Apply Coupon</label>
+        <div className="flex gap-2">
+            <input 
+            type="text" 
+            value={couponCode} 
+            onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+            placeholder="ENTER CODE"
+            className={`${input} h-11 uppercase font-bold tracking-widest`}
+            disabled={appliedCoupon}
+          />
+          {appliedCoupon ? (
+            <button 
+                onClick={() => { setAppliedCoupon(null); setCouponCode(""); if (onCouponApply) onCouponApply(null); }}
+                className="px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50 rounded-xl transition-all"
+            >
+                REMOVE
+            </button>
+          ) : (
+            <button 
+                onClick={handleApplyCoupon}
+                disabled={loading || !couponCode}
+                className={`${buttonPrimary} px-6 h-11 text-xs whitespace-nowrap`}
+            >
+                {loading ? '...' : 'APPLY'}
+            </button>
+          )}
+        </div>
+        {error && <p className="text-[10px] font-bold text-red-500">{error}</p>}
+        {appliedCoupon && (
+            <p className="text-[10px] font-bold text-green-600">
+                ✓ SAVED ₹{discountAmount.toFixed(2)} WITH {appliedCoupon.code}
+            </p>
+        )}
       </div>
 
       <div className="bg-gray-50 rounded-xl p-4 space-y-3">
@@ -52,6 +123,13 @@ const OrderSummary = ({
           </span>
         </div>
 
+        {discountAmount > 0 && (
+            <div className="flex justify-between text-sm text-green-600 font-bold">
+                <span>Coupon Discount</span>
+                <span>-₹{discountAmount.toFixed(2)}</span>
+            </div>
+        )}
+
         {paymentMethod === "cod" && (
           <div className="flex justify-between text-sm text-red-500">
             <span>COD Fee</span>
@@ -73,7 +151,7 @@ const OrderSummary = ({
         </div>
 
         <span className="text-2xl font-bold text-blue-700 tracking-tight">
-          ₹{total}
+          ₹{parseFloat(total).toFixed(2)}
         </span>
 
       </div>

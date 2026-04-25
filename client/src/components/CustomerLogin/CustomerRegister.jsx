@@ -1,9 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { customerRegister, sendOtp, verifyOtp } from "../../services/authService";
+import { useAuth } from "../../context/AuthContext.jsx";
+import heic2any from "heic2any";
+import { createPortal } from "react-dom";
 
 const CustomerRegister = () => {
   const navigate = useNavigate();
+  const { loginUser } = useAuth();
 
   const [step, setStep] = useState(1); // 1: Details, 2: OTP
   const [otp, setOtp] = useState("");
@@ -21,6 +25,7 @@ const CustomerRegister = () => {
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showFullImage, setShowFullImage] = useState(false);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -98,12 +103,50 @@ const CustomerRegister = () => {
         return;
       }
 
-      localStorage.setItem("auth", JSON.stringify(res.data));
+      loginUser(res.data);
       navigate("/customer-onboarding");
     } catch (err) {
       setError("Something went wrong during registration");
     } finally {
       setVerifying(false);
+    }
+  };
+
+  const handleFileChange = async (e) => {
+    let file = e.target.files[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setError("File size too large. Please select a file under 5MB.");
+        return;
+      }
+
+      // Handle HEIC conversion
+      if (file.type === "image/heic" || file.name.toLowerCase().endsWith(".heic")) {
+        try {
+          setError("Converting HEIC image...");
+          const convertedBlob = await heic2any({
+            blob: file,
+            toType: "image/jpeg",
+            quality: 1.0
+          });
+          file = new File(
+            [Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob], 
+            file.name.replace(/\.[^/.]+$/, "") + ".jpg", 
+            { type: "image/jpeg" }
+          );
+          setError("");
+        } catch (err) {
+          console.error("HEIC conversion error:", err);
+          setError("Failed to convert HEIC image. Please use JPG or PNG.");
+          return;
+        }
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setForm({ ...form, profile_picture_url: reader.result });
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -179,14 +222,56 @@ const CustomerRegister = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1 ml-1">Profile Picture URL (Optional)</label>
-                <input
-                  name="profile_picture_url"
-                  placeholder="https://example.com/image.jpg"
-                  onChange={handleChange}
-                  className={inputClass}
-                />
+                <label className="block text-sm font-semibold text-gray-700 mb-1 ml-1">Profile Picture (Optional)</label>
+                <div className="flex items-center gap-4">
+                  {form.profile_picture_url && (
+                    <div className="relative group cursor-pointer" onClick={() => setShowFullImage(true)}>
+                       <img 
+                         src={form.profile_picture_url} 
+                         alt="Preview" 
+                         className="w-16 h-16 rounded-full object-cover border-2 border-blue-100 shadow-sm hover:opacity-80 transition-opacity"
+                       />
+                       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="bg-black/40 text-white text-[8px] font-black uppercase tracking-tighter px-1 rounded">View</span>
+                       </div>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*,.heic"
+                    onChange={handleFileChange}
+                    className="flex-1 text-sm text-gray-500 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:text-sm file:font-black file:bg-blue-50 file:text-blue-600 hover:file:bg-blue-100 transition-all cursor-pointer"
+                  />
+                </div>
               </div>
+
+              {/* Full Image Modal using Portal */}
+              {showFullImage && form.profile_picture_url && createPortal(
+                <div 
+                  className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300"
+                  style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh' }}
+                  onClick={() => setShowFullImage(false)}
+                >
+                  <div 
+                    className="relative w-[450px] max-w-[90vw] h-[450px] max-h-[90vh] bg-white rounded-[3rem] shadow-[0_0_80px_rgba(0,0,0,0.5)] border-[12px] border-white overflow-hidden animate-in zoom-in-95 duration-300"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                     <button 
+                       className="absolute top-4 right-4 z-10 w-10 h-10 bg-black/20 hover:bg-black/40 backdrop-blur-md text-white rounded-full flex items-center justify-center transition-all"
+                       onClick={() => setShowFullImage(false)}
+                     >
+                        <span className="text-xl font-light">×</span>
+                     </button>
+                     <img 
+                       src={form.profile_picture_url} 
+                       alt="Full Size" 
+                       className="w-full h-full object-cover"
+                     />
+                  </div>
+                </div>,
+                document.body
+              )}
+
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>

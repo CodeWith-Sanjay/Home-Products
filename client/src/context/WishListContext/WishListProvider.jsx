@@ -12,7 +12,7 @@ export const WishListProvider = ({ children }) => {
   const getAuth = () => JSON.parse(localStorage.getItem("auth"));
   const getCustomerId = () => {
     const auth = getAuth();
-    return auth?.id || auth?.customer_id || null;
+    return auth?.id || auth?.customer_id || auth?.admin_id || null;
   };
 
   const mapItem = (item) => ({

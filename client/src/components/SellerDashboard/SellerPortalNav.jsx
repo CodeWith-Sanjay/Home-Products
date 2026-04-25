@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getSellerNotifications, markNotificationRead } from "../../services/sellerService";
+import { useAuth } from "../../context/AuthContext";
 
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import PermIdentityIcon from "@mui/icons-material/PermIdentity";
@@ -11,8 +12,9 @@ import CheckIcon from '@mui/icons-material/Check';
 const SellerPortalNav = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { logoutUser, currentUser } = useAuth();
 
-  const seller = JSON.parse(localStorage.getItem("seller"));
+  const seller = currentUser;
   const sellerId = seller?.seller_id || seller?.id;
 
   const [showNotif, setShowNotif] = useState(false);
@@ -133,10 +135,10 @@ const SellerPortalNav = () => {
 
             <button
               onClick={() => {
-                localStorage.clear('seller');
-                navigate('/');
+                logoutUser();
+                window.location.href = "/";
               }}
-              className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm text-red-500"
+              className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm text-red-500 font-bold"
             >
               Logout
             </button>

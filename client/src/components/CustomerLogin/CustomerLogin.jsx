@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { customerLogin } from "../../services/authService";
+import { useAuth } from "../../context/AuthContext.jsx";
 
 const CustomerLogin = () => {
   const navigate = useNavigate();
+  const { loginUser, currentUser } = useAuth();
 
   const [form, setForm] = useState({
     email: "",
@@ -20,8 +22,8 @@ const CustomerLogin = () => {
   const handleSubmit = async (e) => {
       e.preventDefault();
   
-      if (localStorage.getItem("seller")) {
-        setError("A seller is already logged in. Please logout from the seller portal first.");
+      if (currentUser) {
+        setError(`A ${currentUser.role} is already logged in. Please logout first.`);
         return;
       }
   
@@ -53,7 +55,7 @@ const CustomerLogin = () => {
           return;
         }
   
-        localStorage.setItem("auth", JSON.stringify(res.data));
+        loginUser(res.data);
         navigate("/");
       } catch (error) {
         console.error("Login Error:", error);

@@ -19,6 +19,9 @@ const ProfileOrders = () => {
             product: `Order #${order.order_id.slice(0, 8)}`,
             status: order.order_status,
             price: Number(order.total_amount),
+            discount: Number(order.discount_amount || 0),
+            paymentMethod: order.payment_method,
+            paymentStatus: order.payment_status,
             date: new Date(order.placed_at).toLocaleDateString('en-GB', {
               day: '2-digit',
               month: 'short',
@@ -139,9 +142,22 @@ const ProfileOrders = () => {
               {/* MIDDLE */}
               <div className="flex justify-between text-sm text-gray-500">
                 <p>Order ID: {order.id}</p>
-                <p className="font-semibold text-gray-800">
-                  ₹{order.price}
-                </p>
+                <div className="flex flex-col items-end gap-1">
+                  <p className="font-semibold text-gray-800">
+                    ₹{order.price}
+                  </p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    {order.paymentMethod === 'cod' ? 'COD' : 'Online'} • 
+                    <span className={order.paymentStatus === 'Paid' ? 'text-green-600' : 'text-orange-500'}>
+                      {order.paymentStatus}
+                    </span>
+                  </p>
+                  {order.discount > 0 && (
+                    <span className="text-[10px] font-black text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100 uppercase tracking-tighter">
+                      % Offer Applied
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* ACTION */}

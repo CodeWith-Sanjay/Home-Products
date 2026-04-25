@@ -1,0 +1,152 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
+const BASE_URL = 'https://apiv2.shiprocket.in/v1/external';
+
+let authToken = null;
+let tokenExpiry = null;
+
+/**
+ * Authenticate with Shiprocket and get JWT token
+ */
+export const getAuthToken = async () => {
+  // Return cached token if valid (Shiprocket tokens usually last 10 days, we'll check for 9)
+  if (authToken && tokenExpiry && Date.now() < tokenExpiry) {
+    return authToken;
+  }
+
+  const email = process.env.SHIPROCKET_EMAIL?.trim();
+  const password = process.env.SHIPROCKET_PASSWORD?.trim();
+
+  if (!email || !password) {
+    throw new Error('Shiprocket credentials missing in .env');
+  }
+
+  try {
+    const response = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(`Shiprocket Auth Failed [${response.status}]:`, data.message || 'Unknown error');
+      throw new Error(data.message || 'Shiprocket login failed');
+    }
+
+    authToken = data.token;
+    // Set expiry to 9 days from now
+    tokenExpiry = Date.now() + 9 * 24 * 60 * 60 * 1000;
+    
+    return authToken;
+  } catch (error) {
+    console.error('Shiprocket Auth Exception:', error.message);
+    throw error;
+  }
+};
+
+/**
+ * Register a pickup location with Shiprocket
+ */
+export const addShiprocketPickupLocation = async (details) => {
+  const token = await getAuthToken();
+
+  try {
+    const response = await fetch(`${BASE_URL}/settings/company/addpickup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        pickup_location: details.location_name,
+        contact_person: details.contact_name,
+        email: details.email || process.env.SHIPROCKET_EMAIL,
+        phone: details.contact_phone,
+        address: details.address_line_1,
+        city: details.city,
+        state: details.state,
+        country: "India",
+        pin_code: details.pincode
+      }),
+    });
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Shiprocket Add Pickup Error:', error.message);
+    return { success: false, message: error.message };
+  }
+};
+
+/**
+ * Create a new order in Shiprocket
+ */
+export const createShiprocketOrder = async (orderData) => {
+  const token = await getAuthToken();
+
+  try {
+    const response = await fetch(`${BASE_URL}/orders/create/adhoc`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(orderData),
+    });
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Shiprocket Create Order Error:', error.message);
+    return { success: false, message: error.message };
+  }
+};
+
+/**
+ * Get tracking details using AWB
+ */
+export const getShiprocketTracking = async (awbCode) => {
+  const token = await getAuthToken();
+
+  try {
+    const response = await fetch(`${BASE_URL}/courier/track/awb/${awbCode}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+    });
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Shiprocket Tracking Error:', error.message);
+    return { success: false, message: error.message };
+  }
+};
+
+/**
+ * Cancel an order in Shiprocket
+ */
+export const cancelShiprocketOrder = async (srOrderIds) => {
+  const token = await getAuthToken();
+
+  try {
+    const response = await fetch(`${BASE_URL}/orders/cancel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ ids: srOrderIds }),
+    });
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Shiprocket Cancel Order Error:', error.message);
+    return { success: false, message: error.message };
+  }
+};

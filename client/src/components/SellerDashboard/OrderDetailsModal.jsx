@@ -10,6 +10,7 @@ const OrderDetailsModal = ({ orderId, onClose }) => {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [newStatus, setNewStatus] = useState("");
+  const [cancellationReason, setCancellationReason] = useState("");
   const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
@@ -27,18 +28,24 @@ const OrderDetailsModal = ({ orderId, onClose }) => {
 
   const handleUpdateStatus = async () => {
     if (newStatus === order.order_status) return;
+    if (newStatus === 'Cancelled' && !cancellationReason.trim()) {
+      alert("Please provide a reason for cancellation.");
+      return;
+    }
+
     setUpdating(true);
     const seller = JSON.parse(localStorage.getItem("seller"));
     const res = await updateOrderStatus(orderId, {
       status: newStatus,
       changed_by: seller?.seller_id,
-      notes: `Status updated to ${newStatus} by seller.`
+      notes: newStatus === 'Cancelled' ? cancellationReason : `Status updated to ${newStatus} by seller.`
     });
     if (res.success) {
       // Refresh order details
       const refresh = await getOrderDetails(orderId);
       if (refresh.success) {
         setOrder(refresh.data);
+        setCancellationReason("");
       }
       alert("Status updated successfully!");
     } else {
@@ -63,14 +70,14 @@ const OrderDetailsModal = ({ orderId, onClose }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-black/60 backdrop-blur-md">
       <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-[3rem] shadow-2xl relative">
-        
+
         {/* Header */}
         <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-md px-8 py-6 border-b border-gray-100 flex justify-between items-center">
           <div>
             <h3 className="text-2xl font-black text-gray-800 tracking-tight">Order Details</h3>
             <p className="text-sm text-gray-500 font-bold mt-1 uppercase tracking-widest">#{order.order_id.slice(0, 8).toUpperCase()}</p>
           </div>
-          <button 
+          <button
             onClick={onClose}
             className="p-3 bg-gray-50 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all active:scale-90"
           >
@@ -79,7 +86,7 @@ const OrderDetailsModal = ({ orderId, onClose }) => {
         </div>
 
         <div className="p-8 md:p-10 space-y-10">
-          
+
           {/* Status Row */}
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 min-w-[200px] p-6 bg-blue-50 rounded-3xl border border-blue-100">
@@ -97,6 +104,19 @@ const OrderDetailsModal = ({ orderId, onClose }) => {
               <p className="text-lg font-black text-green-700 uppercase tracking-tight">{order.payment_status}</p>
             </div>
           </div>
+
+          {order.order_status === 'Cancelled' && order.cancellation_reason && (
+            <div className="p-8 bg-red-50 border-2 border-red-100 rounded-[2rem] animate-in zoom-in-95 duration-500">
+              <div className="flex items-center gap-3 text-red-600 mb-3">
+                <div className="w-8 h-8 bg-red-100 rounded-xl flex items-center justify-center">
+                  <CloseIcon fontSize="small" />
+                </div>
+                <span className="text-xs font-black uppercase tracking-widest">Cancellation Reason</span>
+              </div>
+              <p className="text-red-900 font-bold text-lg leading-relaxed">"{order.cancellation_reason}"</p>
+              <p className="text-[10px] text-red-400 font-black uppercase tracking-[0.2em] mt-4">This order was cancelled by the customer</p>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
             {/* Customer Info */}
@@ -161,8 +181,8 @@ const OrderDetailsModal = ({ orderId, onClose }) => {
                     <tr key={idx}>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-4">
-                          <img 
-                            src={item.images?.[0]} 
+                          <img
+                            src={item.images?.[0]}
                             alt={item.product_name}
                             className="w-12 h-12 object-cover rounded-xl border border-gray-100"
                           />
@@ -189,37 +209,59 @@ const OrderDetailsModal = ({ orderId, onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="px-8 py-8 bg-gray-50 border-t border-gray-100 flex flex-wrap justify-between items-center gap-6">
-           <div className="flex items-center gap-4">
-              <select 
-                value={newStatus}
-                onChange={(e) => setNewStatus(e.target.value)}
-                className="bg-white border border-gray-200 px-6 py-4 rounded-2xl text-sm font-black uppercase tracking-widest focus:ring-2 focus:ring-blue-100 outline-none transition-all shadow-sm"
-              >
-                <option value="Pending">Pending</option>
-                <option value="Shipped">Shipped</option>
-                <option value="Delivered">Delivered</option>
-                <option value="Cancelled">Cancelled</option>
-              </select>
-              <button 
-                onClick={handleUpdateStatus}
-                disabled={updating || newStatus === order.order_status}
-                className={`px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition active:scale-95 shadow-lg shadow-blue-100 ${
-                  updating || newStatus === order.order_status 
-                    ? "bg-gray-200 text-gray-400 cursor-not-allowed" 
-                    : "bg-blue-600 text-white hover:bg-blue-700"
-                }`}
-              >
-                {updating ? 'Updating...' : 'Update Status'}
-              </button>
-           </div>
-           
-           <button 
-             onClick={onClose}
-             className="px-8 py-4 bg-white border border-gray-200 text-gray-500 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-gray-100 transition active:scale-95 shadow-sm"
-           >
-             Close
-           </button>
+        <div className="px-8 py-8 bg-gray-50 border-t border-gray-100 flex flex-col gap-6">
+          {order.order_status === 'Cancelled' ? (
+            <div className="bg-red-50 p-6 rounded-3xl border border-red-100 w-full">
+              <p className="text-red-700 font-black uppercase tracking-widest text-[10px] mb-2">Order Finalized</p>
+              <p className="text-red-600 font-bold text-sm">This order has been cancelled and cannot be updated further.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4 w-full">
+              <div className="flex flex-wrap justify-between items-center gap-6">
+                <div className="flex items-center gap-4">
+                  <select
+                    value={newStatus}
+                    onChange={(e) => setNewStatus(e.target.value)}
+                    className="bg-white border border-gray-200 px-6 py-4 rounded-2xl text-sm font-black uppercase tracking-widest focus:ring-2 focus:ring-blue-100 outline-none transition-all shadow-sm"
+                  >
+                    <option value="Pending">Pending</option>
+                    <option value="Shipped">Shipped</option>
+                    <option value="Delivered">Delivered</option>
+                    <option value="Cancelled">Cancelled</option>
+                  </select>
+                  <button
+                    onClick={handleUpdateStatus}
+                    disabled={updating || newStatus === order.order_status}
+                    className={`px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition active:scale-95 shadow-lg shadow-blue-100 ${updating || newStatus === order.order_status
+                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      : "bg-blue-600 text-white hover:bg-blue-700"
+                      }`}
+                  >
+                    {updating ? 'Updating...' : 'Update Status'}
+                  </button>
+                </div>
+
+                <button
+                  onClick={onClose}
+                  className="px-8 py-4 bg-white border border-gray-200 text-gray-500 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-gray-100 transition active:scale-95 shadow-sm"
+                >
+                  Close
+                </button>
+              </div>
+
+              {newStatus === 'Cancelled' && (
+                <div className="animate-in slide-in-from-top-2 duration-300">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Reason for Cancellation <span className="text-red-500">*</span></p>
+                  <textarea
+                    value={cancellationReason}
+                    onChange={(e) => setCancellationReason(e.target.value)}
+                    placeholder="Please explain why the order is being cancelled..."
+                    className="w-full bg-white border border-gray-200 p-6 rounded-3xl text-sm font-bold focus:ring-2 focus:ring-red-100 focus:border-red-200 outline-none transition-all shadow-sm min-h-[100px]"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
       </div>

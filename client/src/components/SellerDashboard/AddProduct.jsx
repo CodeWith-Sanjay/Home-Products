@@ -187,10 +187,22 @@ const AddProduct = ({ onClose }) => {
           <div className="space-y-4">
             <h3 className="text-sm font-bold text-blue-600 uppercase tracking-wider">Pricing & Inventory</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <input name="price" type="number" value={form.price} onChange={handleChange} placeholder="Price *" className={inputClass} required />
-              <input name="mrp" type="number" value={form.mrp} onChange={handleChange} placeholder="MRP" className={inputClass} />
-              <input name="stock_quantity" type="number" value={form.stock_quantity} onChange={handleChange} placeholder="Total Stock *" className={inputClass} required />
-              <input name="color" value={form.color} onChange={handleChange} placeholder="Default Color (e.g. White)" className={inputClass} />
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 ml-1 uppercase">Selling Price (Customer Pays)</label>
+                <input name="price" type="number" value={form.price} onChange={handleChange} placeholder="Final price to customer *" className={inputClass} required />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 ml-1 uppercase">MRP (Original Price)</label>
+                <input name="mrp" type="number" value={form.mrp} onChange={handleChange} placeholder="Original price before discount" className={inputClass} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 ml-1 uppercase">Total Stock</label>
+                <input name="stock_quantity" type="number" value={form.stock_quantity} onChange={handleChange} placeholder="Current inventory quantity *" className={inputClass} required />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-400 ml-1 uppercase">Default Color</label>
+                <input name="color" value={form.color} onChange={handleChange} placeholder="e.g. White" className={inputClass} />
+              </div>
             </div>
           </div>
 
@@ -285,6 +297,8 @@ const AddProduct = ({ onClose }) => {
               <div className="grid grid-cols-2 gap-4">
                 <input name="weight" type="number" step="0.01" value={form.weight} onChange={handleChange} placeholder="Weight (kg)" className={inputClass} />
                 <input name="length" type="number" step="0.1" value={form.length} onChange={handleChange} placeholder="Length (cm)" className={inputClass} />
+                <input name="breadth" type="number" step="0.1" value={form.breadth} onChange={handleChange} placeholder="Breadth (cm)" className={inputClass} />
+                <input name="height" type="number" step="0.1" value={form.height} onChange={handleChange} placeholder="Height (cm)" className={inputClass} />
               </div>
             </div>
           </div>

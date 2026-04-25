@@ -25,6 +25,7 @@ const CheckoutPage = () => {
   const [step, setStep] = useState(1);
   const [userDetails, setUserDetails] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("razorpay");
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
 
   const buyNowProduct = location?.state?.buyNowProduct;
   const checkoutItems = location?.state?.checkoutItems;
@@ -40,8 +41,16 @@ const subtotal = items.reduce((acc, item) => {
   const delivery = subtotal > 1000 ? 0 : 40;
   const gst = Math.round(subtotal * 0.05);
   const codFee = paymentMethod === "cod" ? 50 : 0;
-  const platformFee = 10
-  const total = subtotal + delivery + gst + codFee + platformFee;
+  const platformFee = 10;
+  
+  const discountAmount = appliedCoupon 
+    ? Math.min(
+        (subtotal * appliedCoupon.discount_percent) / 100, 
+        appliedCoupon.max_discount || Infinity
+      ) 
+    : 0;
+
+  const total = subtotal + delivery + gst + codFee + platformFee - discountAmount;
 
   return (
     <div className="w-full px-6 md:px-12 py-10 bg-gray-50 min-h-screen">
@@ -95,19 +104,21 @@ const subtotal = items.reduce((acc, item) => {
               total={total}
               userDetails={userDetails}
               items={items}
+              appliedCoupon={appliedCoupon}
             />
           )}
 
         </div>
 
         <OrderSummary
-  subtotal={subtotal}
-  delivery={delivery}
-  gst={gst}
-  total={total}
-  platformFee={platformFee}
-  paymentMethod={paymentMethod}
-/>
+          subtotal={subtotal}
+          delivery={delivery}
+          gst={gst}
+          total={total}
+          platformFee={platformFee}
+          paymentMethod={paymentMethod}
+          onCouponApply={setAppliedCoupon}
+        />
       </div>
     </div>
   );

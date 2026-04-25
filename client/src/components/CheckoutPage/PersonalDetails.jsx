@@ -17,7 +17,7 @@ const PersonalDetails = ({ onNext }) => {
 
   useEffect(() => {
     const auth = JSON.parse(localStorage.getItem("auth"));
-    if (auth?.id) {
+    if (auth?.id || auth?.admin_id) {
       // Pre-fill from auth session first
       setForm(prev => ({
         ...prev,
@@ -27,7 +27,8 @@ const PersonalDetails = ({ onNext }) => {
       }));
 
       // Fetch saved addresses
-      getCustomerAddresses(auth.id).then((res) => {
+      const userId = auth.id || auth.admin_id;
+      getCustomerAddresses(userId).then((res) => {
         if (res.success && res.data.length > 0) {
           const defaultAddr = res.data.find(a => a.is_default) || res.data[0];
           setForm(prev => ({

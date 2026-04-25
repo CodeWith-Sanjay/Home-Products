@@ -28,3 +28,16 @@ export const getOrderDetails = async (orderId) => {
         throw error.response ? error.response.data : error;
     }
 };
+
+export const cancelOrder = async (orderId, customerId, reason) => {
+    try {
+        const response = await axios.patch(`${API_URL}/status/${orderId}`, {
+            status: 'Cancelled',
+            changed_by: customerId,
+            notes: reason || 'Order cancelled by customer'
+        });
+        return response.data;
+    } catch (error) {
+        throw error.response ? error.response.data : error;
+    }
+};

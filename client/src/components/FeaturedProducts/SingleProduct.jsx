@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useContext } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { Star, MessageSquare, User, Calendar, CheckCircle } from "lucide-react";
+import { api } from "../../services/api";
 
 import FavoriteBorderSharpIcon from "@mui/icons-material/FavoriteBorderSharp";
 import { CartContext } from "../../context/CartContext/CartContext";
 import { WishListContext } from "../../context/WishListContext/WishListContext";
-import { ProductContext } from "../../context/ProductContext/ProductContext";
+import { useProducts } from "../../context/ProductContext/ProductProvider";
+import { useAuth } from "../../context/AuthContext";
+import ReviewModal from "../ProfilePage/ReviewModal";
 
 import { animation } from "../../utils/UIStyles";
 import * as productService from "../../services/productService";
@@ -12,15 +17,23 @@ import * as productService from "../../services/productService";
 const SingleProduct = () => {
   const navigate = useNavigate();
   const [imageIndex, setImageIndex] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
 
   const { cart, addToCart, removeFromCart, deleteItem } = useContext(CartContext);
   const { wishList, addToWishList, removeFromWishList } =
     useContext(WishListContext);
-  const { products, loading: contextLoading } = useContext(ProductContext);
+  const { products, loading: contextLoading, updateProductRating } = useProducts();
 
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedVariant, setSelectedVariant] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [canReview, setCanReview] = useState(false);
+  const [reviewOrderId, setReviewOrderId] = useState(null);
+  const [existingReview, setExistingReview] = useState(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const { currentUser } = useAuth();
 
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
@@ -46,9 +59,9 @@ const SingleProduct = () => {
       id: p.product_id,
       basePrice: mrp > 0 ? mrp : price,
       baseDiscountPrice: price,
-      discountPercent: (mrp > 0 && mrp > price)
-        ? Math.round(((mrp - price) / mrp) * 100)
-        : 0,
+      discountPercent: p.discount_percent > 0 
+        ? p.discount_percent 
+        : ((mrp > 0 && mrp > price) ? Math.round(((mrp - price) / mrp) * 100) : 0),
       reviewsCount: p.reviews_count || 0,
       rating: p.rating || 0,
       mainImages: mainImages,
@@ -108,6 +121,65 @@ const SingleProduct = () => {
     findProduct();
   }, [slug, products, contextLoading, variantIdFromUrl]);
 
+  useEffect(() => {
+    if (product?.id) {
+      fetchReviews(product.id, selectedVariant?.variant_id);
+    }
+  }, [product?.id, selectedVariant?.variant_id]);
+
+  const fetchReviews = async (productId, vId = null) => {
+    setLoadingReviews(true);
+    try {
+      const res = await api.get(`/user/reviews/product/${productId}${vId ? `?variantId=${vId}` : ""}`);
+      if (res.data.success) {
+        const fetchedReviews = res.data.data;
+        setReviews(fetchedReviews);
+        
+        // Dynamically update product rating and count based on fetched reviews
+        if (fetchedReviews.length > 0) {
+          const totalRating = fetchedReviews.reduce((acc, rev) => acc + rev.rating, 0);
+          const avgRating = (totalRating / fetchedReviews.length).toFixed(1);
+          setProduct(prev => prev ? ({
+            ...prev,
+            rating: avgRating,
+            reviewsCount: fetchedReviews.length
+          }) : prev);
+
+          // Update global context so other components (Featured, Categories, etc) see the change
+          updateProductRating(productId, avgRating, fetchedReviews.length, vId);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch reviews:", err);
+    } finally {
+      setLoadingReviews(false);
+    }
+  };
+
+  const checkEligibility = async (productId) => {
+    if (!currentUser) return;
+    try {
+      const res = await api.get(`/user/customer/can-review/${productId}`);
+      if (res.data.success) {
+        setCanReview(res.data.canReview);
+        setReviewOrderId(res.data.orderItemId);
+        if (res.data.alreadyReviewed) {
+          setExistingReview(res.data.review);
+        } else {
+          setExistingReview(null);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to check review eligibility:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (product?.id && currentUser) {
+      checkEligibility(product.id);
+    }
+  }, [product?.id, currentUser]);
+
   // Determine which selection should determine price/stock
   const activeVariant = selectedVariant;
 
@@ -121,9 +193,9 @@ const SingleProduct = () => {
 
   const currentMRP = product?.basePrice || product?.price || 0;
 
-  const currentDiscountPercent = (currentMRP > currentPrice)
-    ? Math.round(((currentMRP - currentPrice) / currentMRP) * 100)
-    : 0;
+  const currentDiscountPercent = product?.discount_percent > 0 
+    ? product.discount_percent 
+    : (currentMRP > currentPrice ? Math.round(((currentMRP - currentPrice) / currentMRP) * 100) : 0);
 
   // Combine images: images from selected variant first, then main images
   const selectionIds = selectedVariant ? [selectedVariant.variant_id] : [];
@@ -191,16 +263,51 @@ const SingleProduct = () => {
 
   return (
     <div className="w-full px-6 md:px-12 py-3 md:py-10 my-2">
+      {/* Full Screen Hover Preview Overlay - Minimalist floating version with Framer Motion */}
+      <AnimatePresence>
+        {isHovered && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-[9999] backdrop-blur-md flex items-center justify-center p-6 md:p-12 pointer-events-none"
+          >
+            <motion.div 
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative max-w-2xl w-full h-fit flex items-center justify-center"
+            >
+              <img
+                src={finalImages[imageIndex]}
+                className="max-w-full max-h-[75vh] object-contain drop-shadow-2xl"
+                alt={product.name}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-stretch">
         <div className="w-full lg:max-w-lg mx-auto flex flex-col h-full">
           {/* Main Image Container - Fixed height to prevent layout shift */}
-          <div className="relative h-[400px] md:h-[550px] w-full bg-white rounded-2xl border border-gray-100 flex items-center justify-center p-6 shadow-sm overflow-hidden">
+          <div 
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            className="relative h-[400px] md:h-[550px] w-full bg-white rounded-2xl border border-gray-100 flex items-center justify-center p-6 shadow-sm overflow-hidden cursor-zoom-in"
+          >
             <img
               key={`${activeVariant?.variant_id}-${imageIndex}`}
               className="max-w-full max-h-full object-contain animate-fadeIn"
               src={finalImages[imageIndex]}
               alt={product.name}
             />
+            {/* Hover instruction badge */}
+            <div className="absolute bottom-4 right-4 bg-gray-900/5 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/20">
+               <p className="text-[9px] font-black text-gray-800 uppercase tracking-widest">Hover to Enlarge</p>
+            </div>
           </div>
 
           {/* Thumbnails */}
@@ -414,6 +521,122 @@ const SingleProduct = () => {
           </div>
         </div>
       </div>
+
+      {/* REVIEWS SECTION */}
+      <div className="mt-20 pt-20 border-t border-gray-100 max-w-4xl">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+          <div>
+            <h2 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-3">
+              <MessageSquare className="text-blue-600" />
+              Customer Feedback
+            </h2>
+            <p className="text-gray-500 font-medium mt-1">Honest thoughts from our verified community</p>
+          </div>
+          <div className="flex flex-col md:flex-row items-center gap-4">
+            {canReview ? (
+              <button 
+                onClick={() => setShowReviewModal(true)}
+                className="px-8 py-4 bg-slate-950 text-white rounded-3xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
+              >
+                Write a Review
+              </button>
+            ) : existingReview ? (
+              <button 
+                onClick={() => setShowReviewModal(true)}
+                className="px-8 py-4 bg-white border-2 border-slate-950 text-slate-950 rounded-3xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-all shadow-xl shadow-slate-200"
+              >
+                Edit Your Review
+              </button>
+            ) : null}
+            <div className="flex items-center gap-4 bg-gray-50 px-6 py-4 rounded-3xl border border-gray-100 h-full">
+              <div className="text-right">
+                <p className="text-2xl font-black text-gray-900">{product.rating || 0}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Average Rating</p>
+              </div>
+              <div className="w-px h-8 bg-gray-200" />
+              <div>
+                <p className="text-2xl font-black text-gray-900">{reviews.length}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Reviews</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {loadingReviews ? (
+          <div className="flex justify-center py-12">
+            <div className="h-8 w-8 border-2 border-gray-200 border-t-blue-600 rounded-full animate-spin" />
+          </div>
+        ) : reviews.length === 0 ? (
+          <div className="bg-gray-50 rounded-[2.5rem] p-12 text-center border border-dashed border-gray-200">
+            <p className="text-gray-500 font-bold italic">No reviews yet. Be the first to share your experience!</p>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {reviews.map((review) => (
+              <div key={review.review_id} className="bg-white rounded-[2rem] p-8 border border-gray-100 shadow-sm hover:shadow-xl hover:shadow-gray-100/50 transition-all">
+                <div className="flex flex-col md:flex-row gap-6">
+                  <div className="md:w-48 space-y-4">
+                    <div className="flex gap-0.5">
+                      {[...Array(5)].map((_, i) => (
+                        <Star 
+                          key={i} 
+                          size={14} 
+                          className={i < review.rating ? "fill-amber-400 text-amber-400" : "text-gray-200"} 
+                        />
+                      ))}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <User size={12} className="text-gray-400" />
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-black text-gray-900">{review.customer_name}</p>
+                          {review.variant_name && (
+                            <span className="text-[9px] font-bold px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full border border-gray-200">
+                              {review.variant_name}: {review.variant_value}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-green-600">
+                        <CheckCircle size={10} />
+                        <p className="text-[9px] font-black uppercase tracking-widest">Verified Purchase</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-400">
+                      <Calendar size={12} />
+                      <p className="text-[10px] font-bold">{new Date(review.created_at).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    {review.title && <h4 className="text-lg font-black text-gray-900">{review.title}</h4>}
+                    <p className="text-gray-600 leading-relaxed text-sm font-medium italic">"{review.body}"</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {showReviewModal && (
+        <ReviewModal 
+          isOpen={showReviewModal}
+          onClose={() => setShowReviewModal(false)}
+          orderItemId={reviewOrderId}
+          product={{
+            id: product.id,
+            name: product.name,
+            image: finalImages[0]
+          }}
+          onReviewSubmitted={() => {
+            console.log("REVIEW SUBMITTED! Re-fetching with variantId:", selectedVariant?.variant_id);
+            fetchReviews(product.id, selectedVariant?.variant_id);
+            checkEligibility(product.id); // Refresh eligibility/existing review
+          }}
+          existingReview={existingReview}
+          variantId={selectedVariant?.variantId || selectedVariant?.variant_id}
+        />
+      )}
     </div>
   );
 };

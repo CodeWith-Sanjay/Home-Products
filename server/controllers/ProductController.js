@@ -1,4 +1,5 @@
 import { pool } from "../configs/db.js";
+import { logAction } from "../utils/auditLogger.js";
 
 export const addProduct = async (req, res) => {
     try {
@@ -21,7 +22,8 @@ export const addProduct = async (req, res) => {
             variants, // Array of { tempId, name, value, price, stock, weight }
             color,
             size,
-            room
+            room,
+            discount_percent
         } = req.body;
 
         if (!name || !price || !seller_id || !category_id) {
@@ -37,8 +39,8 @@ export const addProduct = async (req, res) => {
 
             const productResult = await client.query(
                 `INSERT INTO products 
-                (product_id, category_id, seller_id, name, description, sku, price, mrp, stock_quantity, weight, length, breadth, height, brand, images, slug, color, size, room) 
-                VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) 
+                (product_id, category_id, seller_id, name, description, sku, price, mrp, stock_quantity, weight, length, breadth, height, brand, images, slug, color, size, room, discount_percent) 
+                VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) 
                 RETURNING *`,
                 [
                     category_id,
@@ -58,7 +60,8 @@ export const addProduct = async (req, res) => {
                     slug || name.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now(),
                     color,
                     size,
-                    room
+                    room,
+                    discount_percent || 0
                 ]
             );
 
@@ -68,11 +71,21 @@ export const addProduct = async (req, res) => {
             const variantMap = {};
             if (variants && variants.length > 0) {
                 for (const variant of variants) {
+                    const variantSku = variant.sku || `${product.sku}-var-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
                     const vRes = await client.query(
-                        `INSERT INTO product_variants (variant_id, product_id, sku, variant_name, variant_value, price, stock_quantity, weight) 
-                        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7) 
+                        `INSERT INTO product_variants (variant_id, product_id, sku, variant_name, variant_value, price, stock_quantity, weight, name) 
+                        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8) 
                         RETURNING variant_id`,
-                        [product.product_id, variant.sku || product.sku, variant.name, variant.value, (variant.price || variant.price === 0) ? variant.price : product.price, (variant.stock || variant.stock === 0) ? variant.stock : product.stock_quantity, (variant.weight || variant.weight === 0) ? variant.weight : product.weight]
+                        [
+                            product.product_id, 
+                            variantSku, 
+                            variant.name, 
+                            variant.value, 
+                            (variant.price || variant.price === 0) ? variant.price : product.price, 
+                            (variant.stock || variant.stock === 0) ? variant.stock : product.stock_quantity, 
+                            (variant.weight || variant.weight === 0) ? variant.weight : product.weight,
+                            product.name // Default variant name to parent name at creation
+                        ]
                     );
                     if (variant.tempId) {
                         variantMap[variant.tempId] = vRes.rows[0].variant_id;
@@ -97,6 +110,9 @@ export const addProduct = async (req, res) => {
 
             await client.query('COMMIT');
 
+            // Log the action
+            await logAction(req, 'ADD_PRODUCT', { product_id: product.product_id, name: product.name });
+
             return res.status(201).json({
                 success: true,
                 message: 'Product added successfully',
@@ -120,14 +136,35 @@ export const addProduct = async (req, res) => {
 
 export const getProducts = async (req, res) => {
     try {
-        const result = await pool.query(`
+        const { seller_id } = req.query;
+        console.log("-----------------------------------------");
+        console.log("BACKEND: GET PRODUCTS REQUEST");
+        console.log("SELLER_ID FROM QUERY:", seller_id);
+
+        let query = `
             SELECT p.*, 
+            COALESCE((SELECT AVG(rating)::numeric(10,1) FROM reviews WHERE product_id = p.product_id AND variant_id IS NULL), 0) as rating,
+            (SELECT COUNT(*) FROM reviews WHERE product_id = p.product_id AND variant_id IS NULL) as reviews_count,
             (SELECT json_agg(pi.* ORDER BY pi.sort_order) FROM product_images pi WHERE pi.product_id = p.product_id) as pi_images,
             (SELECT json_agg(pv.*) FROM product_variants pv WHERE pv.product_id = p.product_id) as variants
             FROM products p 
-            WHERE p.is_active = true 
-            ORDER BY p.created_at DESC
-        `);
+            WHERE p.deleted_at IS NULL
+        `;
+        const queryParams = [];
+
+        if (seller_id && seller_id !== 'null' && seller_id !== 'undefined' && seller_id !== '') {
+            query += ` AND p.seller_id = $1::uuid`;
+            queryParams.push(seller_id);
+            console.log("FILTERING BY SELLER_ID:", seller_id);
+        } else {
+            console.log("NO SELLER_ID FILTER APPLIED");
+        }
+
+        query += ` ORDER BY p.created_at DESC`;
+
+        const result = await pool.query(query, queryParams);
+        console.log("TOTAL PRODUCTS FOUND:", result.rows.length);
+        console.log("-----------------------------------------");
 
         return res.status(200).json({
             success: true,
@@ -164,6 +201,8 @@ export const getProductsById = async (req, res) => {
         const { product_id } = req.params;
         const result = await pool.query(`
             SELECT p.*, 
+            COALESCE((SELECT AVG(rating)::numeric(10,1) FROM reviews WHERE product_id = p.product_id AND variant_id IS NULL), 0) as rating,
+            (SELECT COUNT(*) FROM reviews WHERE product_id = p.product_id AND variant_id IS NULL) as reviews_count,
             (SELECT json_agg(pi.* ORDER BY pi.sort_order) FROM product_images pi WHERE pi.product_id = p.product_id) as pi_images,
             (SELECT json_agg(pv.*) FROM product_variants pv WHERE pv.product_id = p.product_id) as variants
             FROM products p 
@@ -209,8 +248,8 @@ export const addVariants = async (req, res) => {
             const results = [];
             for (const variant of variants) {
                 const res = await client.query(
-                    `INSERT INTO product_variants (variant_id, product_id, sku, variant_name, variant_value, price, stock_quantity, weight) 
-                    VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7) 
+                    `INSERT INTO product_variants (variant_id, product_id, sku, variant_name, variant_value, price, stock_quantity, weight, name) 
+                    VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, (SELECT name FROM products WHERE product_id = $1)) 
                     RETURNING *`,
                     [product_id, variant.sku, variant.name, variant.value, variant.price, variant.stock || 0, variant.weight]
                 );
@@ -244,6 +283,8 @@ export const getProductBySlug = async (req, res) => {
         const { slug } = req.params;
         const result = await pool.query(`
             SELECT p.*, 
+            COALESCE((SELECT AVG(rating)::numeric(10,1) FROM reviews WHERE product_id = p.product_id AND variant_id IS NULL), 0) as rating,
+            (SELECT COUNT(*) FROM reviews WHERE product_id = p.product_id AND variant_id IS NULL) as reviews_count,
             (SELECT json_agg(pi.* ORDER BY pi.sort_order) FROM product_images pi WHERE pi.product_id = p.product_id) as pi_images,
             (SELECT json_agg(pv.*) FROM product_variants pv WHERE pv.product_id = p.product_id) as variants
             FROM products p 
@@ -273,28 +314,137 @@ export const getProductBySlug = async (req, res) => {
 
 export const updateProduct = async (req, res) => {
     const { product_id } = req.params;
-    const { name, description, price, mrp, stock_quantity, brand, category_id, room } = req.body;
+    const {
+        name, description, price, mrp, stock_quantity,
+        brand, category_id, room, discount_percent, sku,
+        weight, length, breadth, height, variants // Array of variants to sync
+    } = req.body;
 
+    const client = await pool.connect();
     try {
-        const result = await pool.query(
+        await client.query('BEGIN');
+
+        // 1. Update the base product record
+        const result = await client.query(
             `UPDATE products 
-             SET name = $1, description = $2, price = $3, mrp = $4, stock_quantity = $5, brand = $6, category_id = $7, room = $8
-             WHERE product_id = $9 RETURNING *`,
-            [name, description, price, mrp, stock_quantity, brand, category_id, room, product_id]
+             SET name = COALESCE($1, name), 
+                 description = COALESCE($2, description), 
+                 price = COALESCE($3, price), 
+                 mrp = COALESCE($4, mrp), 
+                 stock_quantity = COALESCE($5, stock_quantity), 
+                 brand = COALESCE($6, brand), 
+                 category_id = COALESCE($7, category_id), 
+                 room = COALESCE($8, room), 
+                 discount_percent = COALESCE($9, discount_percent), 
+                 sku = COALESCE($10, sku),
+                 weight = COALESCE($11, weight), 
+                 length = COALESCE($12, length), 
+                 breadth = COALESCE($13, breadth), 
+                 height = COALESCE($14, height),
+                 updated_at = NOW()
+             WHERE product_id = $15 RETURNING *`,
+            [
+                name, description, price, mrp, stock_quantity,
+                brand, category_id, room, discount_percent, sku,
+                weight, length, breadth, height,
+                product_id
+            ]
         );
 
         if (result.rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ success: false, message: 'Product not found' });
         }
 
+        // 2. Sync Variants (Smart Sync)
+        if (variants && Array.isArray(variants)) {
+            const incomingIds = variants.map(v => v.variant_id || v.id || v.tempId).filter(id => id && !String(id).startsWith('v_'));
+            
+            // A. Handle existing/updated variants and inserts
+            for (const v of variants) {
+                const vid = (v.variant_id || v.id || v.tempId);
+                const isNew = !vid || String(vid).startsWith('v_');
+                const variantSku = v.sku || `${sku || result.rows[0].sku}-var-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+
+                if (isNew) {
+                    await client.query(
+                        `INSERT INTO product_variants (variant_id, product_id, sku, variant_name, variant_value, price, stock_quantity, weight, name) 
+                         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)`,
+                        [
+                            product_id, 
+                            variantSku, 
+                            v.variant_name || v.name || 'Variant', 
+                            v.variant_value || v.value || 'Standard', 
+                            v.price || price, 
+                            v.stock_quantity || v.stock || 0, 
+                            v.weight || 0,
+                            name || result.rows[0].name // Use new parent name if provided, else existing
+                        ]
+                    );
+                } else {
+                    await client.query(
+                        `UPDATE product_variants 
+                         SET variant_name = $1, variant_value = $2, price = $3, stock_quantity = $4, weight = $5, sku = $6
+                         WHERE variant_id = $7 AND product_id = $8`,
+                        [v.variant_name || v.name || 'Variant', v.variant_value || v.value || 'Standard', v.price || price, v.stock_quantity || v.stock || 0, v.weight || 0, variantSku, vid, product_id]
+                    );
+                }
+            }
+
+            // B. Clean up removed variants (Only if NOT used in orders)
+            if (incomingIds.length > 0) {
+                // Find variants that were NOT in the incoming payload
+                const toRemoveRes = await client.query(
+                    `SELECT variant_id FROM product_variants 
+                     WHERE product_id = $1 AND variant_id NOT IN (${incomingIds.map((_, i) => `$${i + 2}`).join(',')})`,
+                    [product_id, ...incomingIds]
+                );
+
+                for (const row of toRemoveRes.rows) {
+                    try {
+                        await client.query('DELETE FROM product_variants WHERE variant_id = $1', [row.variant_id]);
+                    } catch (err) {
+                        console.warn(`Could not delete variant ${row.variant_id} due to dependencies (likely orders). Keeping as legacy data.`);
+                    }
+                }
+            } else if (variants.length === 0) {
+                // If the user removed ALL variants, try to delete all
+                const allVariants = await client.query(`SELECT variant_id FROM product_variants WHERE product_id = $1`, [product_id]);
+                for (const row of allVariants.rows) {
+                    try {
+                        await client.query('DELETE FROM product_variants WHERE variant_id = $1', [row.variant_id]);
+                    } catch (err) {
+                        console.warn(`Could not delete variant ${row.variant_id} due to dependencies.`);
+                    }
+                }
+            }
+        }
+
+        // 3. Log the action
+        await logAction(req, 'UPDATE_PRODUCT', { product_id, updates: req.body });
+
+        // 4. Fetch full product with joins to return to frontend
+        const fullProduct = await client.query(`
+            SELECT p.*, 
+            (SELECT json_agg(pi.* ORDER BY pi.sort_order) FROM product_images pi WHERE pi.product_id = p.product_id) as pi_images,
+            (SELECT json_agg(pv.*) FROM product_variants pv WHERE pv.product_id = p.product_id) as variants
+            FROM products p 
+            WHERE p.product_id = $1
+        `, [product_id]);
+
+        await client.query('COMMIT');
+
         return res.status(200).json({
             success: true,
-            message: 'Product updated successfully',
-            data: result.rows[0]
+            message: 'Product family updated successfully',
+            data: fullProduct.rows[0]
         });
     } catch (error) {
-        console.log('Error updating product: ', error.message);
-        return res.status(500).json({ success: false, message: 'Error updating product', error: error.message });
+        await client.query('ROLLBACK');
+        console.error('Error updating product family:', error.message);
+        return res.status(500).json({ success: false, message: 'Error updating product family', error: error.message });
+    } finally {
+        client.release();
     }
 }
 
@@ -308,6 +458,9 @@ export const deleteProduct = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Product not found' });
         }
 
+        // Log the action
+        await logAction(req, 'DELETE_PRODUCT', { product_id, product: result.rows[0] });
+
         return res.status(200).json({
             success: true,
             message: 'Product deleted successfully'
@@ -316,3 +469,112 @@ export const deleteProduct = async (req, res) => {
         return res.status(500).json({ success: false, message: 'Error deleting product', error: error.message });
     }
 }
+
+export const updateVariant = async (req, res) => {
+    const { variant_id } = req.params;
+    const body = req.body;
+    console.log("BACKEND: UPDATE VARIANT REQUEST FOR ID:", variant_id);
+    console.log("BACKEND: UPDATE VARIANT BODY:", JSON.stringify(body, null, 2));
+
+    const { 
+        variant_name, variant_value, price, stock_quantity, sku, weight,
+        name, description, brand, category_id, room 
+    } = body;
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Update the variant record
+        const vResult = await client.query(
+            `UPDATE product_variants 
+             SET name = COALESCE(NULLIF($1, ''), name), 
+                 variant_name = COALESCE(NULLIF($2, ''), variant_name), 
+                 variant_value = COALESCE(NULLIF($3, ''), variant_value), 
+                 price = COALESCE($4, price), 
+                 stock_quantity = COALESCE($5, stock_quantity), 
+                 sku = COALESCE(NULLIF($6, ''), sku),
+                 weight = COALESCE($7, weight)
+             WHERE variant_id = $8 RETURNING *`,
+            [
+                name, // This is the variant's OWN name now
+                variant_name, 
+                variant_value, 
+                (price === "" || price === undefined) ? null : price, 
+                (stock_quantity === "" || stock_quantity === undefined) ? null : stock_quantity, 
+                sku, 
+                (weight === "" || weight === undefined) ? null : weight, 
+                variant_id
+            ]
+        );
+
+        if (vResult.rows.length === 0) {
+            console.log("BACKEND: VARIANT NOT FOUND IN DB:", variant_id);
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Variant not found' });
+        }
+
+        const variant = vResult.rows[0];
+        console.log("BACKEND: VARIANT UPDATED SUCCESSFULLY:", variant.variant_id);
+
+        // 2. Log the action
+        await logAction(req, 'UPDATE_VARIANT', { variant_id, product_id: variant.product_id, updates: req.body });
+
+        // 3. Fetch full refreshed product family
+        const fullProduct = await client.query(`
+            SELECT p.*, 
+            (SELECT json_agg(pi.* ORDER BY pi.sort_order) FROM product_images pi WHERE pi.product_id = p.product_id) as pi_images,
+            (SELECT json_agg(pv.*) FROM product_variants pv WHERE pv.product_id = p.product_id) as variants
+            FROM products p 
+            WHERE p.product_id = $1
+        `, [variant.product_id]);
+
+        await client.query('COMMIT');
+
+        return res.status(200).json({
+            success: true,
+            message: 'Variant and base product updated successfully',
+            data: fullProduct.rows[0]
+        });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('BACKEND: ERROR UPDATING VARIANT FAMILY:', error);
+        return res.status(500).json({ success: false, message: 'Error updating product variant family', error: error.message });
+    } finally {
+        client.release();
+    }
+}
+
+export const searchProducts = async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q) {
+            return res.status(400).json({ success: false, message: "Search query is required" });
+        }
+
+        const queryText = `
+            SELECT p.*, 
+            COALESCE((SELECT AVG(rating)::numeric(10,1) FROM reviews WHERE product_id = p.product_id AND variant_id IS NULL), 0) as rating,
+            (SELECT COUNT(*) FROM reviews WHERE product_id = p.product_id AND variant_id IS NULL) as reviews_count,
+            (SELECT json_agg(pi.* ORDER BY pi.sort_order) FROM product_images pi WHERE pi.product_id = p.product_id) as pi_images,
+            (SELECT json_agg(pv.*) FROM product_variants pv WHERE pv.product_id = p.product_id) as variants
+            FROM products p 
+            WHERE p.is_active = true 
+            AND (p.name ILIKE $1 OR p.description ILIKE $1 OR p.brand ILIKE $1)
+            ORDER BY p.created_at DESC
+        `;
+        const result = await pool.query(queryText, [`%${q}%`]);
+
+        return res.status(200).json({
+            success: true,
+            data: result.rows
+        });
+    } catch (error) {
+        console.error("SEARCH PRODUCTS ERROR:", error);
+        return res.status(500).json({
+            success: false,
+            message: 'Error searching products',
+            error: error.message
+        });
+    }
+};

@@ -7,7 +7,7 @@ import { WishListContext } from "../../context/WishListContext/WishListContext";
 const Cart = () => {
   const navigate = useNavigate();
   const { cart, addToCart, removeFromCart, deleteItem } = useContext(CartContext);
-  const {addToWishList} = useContext(WishListContext);
+  const { addToWishList } = useContext(WishListContext);
 
   const [selectedItems, setSelectedItems] = useState([]);
 
@@ -15,7 +15,6 @@ const Cart = () => {
     window.scrollTo(0, 0);
   }, []);
 
-  // Pre-select all items when cart loads
   useEffect(() => {
     if (cart.length > 0 && selectedItems.length === 0) {
       setSelectedItems(cart.filter(item => item.stock > 0).map(item => item.cart_item_id));
@@ -23,7 +22,7 @@ const Cart = () => {
   }, [cart]);
 
   const toggleSelection = (itemId) => {
-    setSelectedItems(prev => 
+    setSelectedItems(prev =>
       prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
     );
   };
@@ -104,9 +103,8 @@ const Cart = () => {
                 ${product.stock === 0 ? "grayscale opacity-60" : ""}
               `}
             >
-              {/* CHECKBOX */}
               <div className="flex items-center">
-                <input 
+                <input
                   type="checkbox"
                   disabled={product.stock === 0}
                   checked={selectedItems.includes(product.cart_item_id)}
@@ -134,7 +132,7 @@ const Cart = () => {
               <div className="flex-1 flex flex-col justify-between py-1">
 
                 <div>
-                  <h2 
+                  <h2
                     onClick={() => navigate(`/product/${product.slug}`)}
                     className={`text-lg font-bold text-gray-900 hover:text-blue-600 transition cursor-pointer inline-block
                       ${product.stock === 0 ? "pointer-events-none" : ""}
@@ -241,7 +239,7 @@ const Cart = () => {
               <span>Delivery</span>
               <span className="text-green-600 font-bold">FREE</span>
             </div>
-            
+
             <div className="pt-4 border-t border-dashed border-gray-200">
               <div className="flex justify-between items-end">
                 <span className="text-gray-900 font-bold">Total Amount</span>
@@ -283,4 +281,4 @@ const Cart = () => {
   );
 };
 
-export default Cart;
+export default Cart;

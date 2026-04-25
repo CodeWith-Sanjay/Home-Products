@@ -1,5 +1,6 @@
-import React, { useState, useContext } from "react";
+import React, { useState, useContext, useEffect } from "react";
 import { ProductContext } from "../../context/ProductContext/ProductContext";
+import { useAuth } from "../../context/AuthContext";
 import AddProduct from "./AddProduct";
 import EditProduct from "./EditProduct";
 import DeleteProduct from "./DeleteProduct";
@@ -7,20 +8,31 @@ import SearchIcon from '@mui/icons-material/Search';
 import FilterListIcon from '@mui/icons-material/FilterList';
 
 const SellerProducts = () => {
-  const { products } = useContext(ProductContext);
-  const auth = JSON.parse(localStorage.getItem("seller"));
-  const sellerId = auth?.seller_id || auth?.id;
+  const { sellerProducts, fetchSellerProducts } = useContext(ProductContext);
+  const { currentUser } = useAuth();
+  const sellerId = currentUser?.seller_id || currentUser?.id;
+
+  useEffect(() => {
+    if (sellerId) {
+      fetchSellerProducts(sellerId);
+    }
+  }, [sellerId, fetchSellerProducts]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [priceSort, setPriceSort] = useState("none");
 
-  // Filter products added by this seller
-  let sellerProducts = products.filter(p => p.seller_id === sellerId);
+  // Local filtering for search and status (already restricted to seller on fetch)
+  let filteredProducts = sellerProducts.filter(p => {
+    const pSellerId = String(p.seller_id || '').toLowerCase();
+    const sId = String(sellerId || '').toLowerCase();
+    // console.log(`Comparing Product Seller ID: ${pSellerId} with Current Seller ID: ${sId}`);
+    return pSellerId === sId;
+  });
 
   // Search filter
   if (searchQuery) {
-    sellerProducts = sellerProducts.filter(p => 
+    filteredProducts = filteredProducts.filter(p =>
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.id.toString().includes(searchQuery)
     );
@@ -28,14 +40,14 @@ const SellerProducts = () => {
 
   // Status filter
   if (statusFilter !== "All") {
-    sellerProducts = sellerProducts.filter(p => p.status === statusFilter);
+    filteredProducts = filteredProducts.filter(p => p.status === statusFilter);
   }
 
   // Price sort
   if (priceSort === "low") {
-    sellerProducts.sort((a, b) => a.price - b.price);
+    filteredProducts.sort((a, b) => a.price - b.price);
   } else if (priceSort === "high") {
-    sellerProducts.sort((a, b) => b.price - a.price);
+    filteredProducts.sort((a, b) => b.price - a.price);
   }
 
   const [showAdd, setShowAdd] = useState(false);
@@ -53,21 +65,21 @@ const SellerProducts = () => {
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h2 className="text-xl font-semibold text-gray-800">
-          Products ({sellerProducts.length})
+          Products ({filteredProducts.length})
         </h2>
 
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
             <SearchIcon className="absolute left-3 top-2.5 text-gray-400 text-sm" />
-            <input 
-              type="text" 
+            <input
+              type="text"
               placeholder="Search products..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          
+
           <button
             onClick={() => setShowAdd(true)}
             className="whitespace-nowrap text-sm bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition font-medium shadow-sm shadow-blue-200"
@@ -84,7 +96,7 @@ const SellerProducts = () => {
           <span>Filters:</span>
         </div>
 
-        <select 
+        <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
           className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
@@ -94,7 +106,7 @@ const SellerProducts = () => {
           <option value="Inactive">Inactive</option>
         </select>
 
-        <select 
+        <select
           value={priceSort}
           onChange={(e) => setPriceSort(e.target.value)}
           className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
@@ -105,7 +117,7 @@ const SellerProducts = () => {
         </select>
 
         {(searchQuery || statusFilter !== "All" || priceSort !== "none") && (
-          <button 
+          <button
             onClick={() => {
               setSearchQuery("");
               setStatusFilter("All");
@@ -134,7 +146,7 @@ const SellerProducts = () => {
 
             <tbody className="divide-y divide-gray-100">
 
-              {sellerProducts.length > 0 ? sellerProducts.map((product) => (
+              {filteredProducts.length > 0 ? filteredProducts.map((product) => (
                 <tr key={product.id} className="hover:bg-gray-50 transition">
 
                   <td className="px-6 py-4">
@@ -155,7 +167,14 @@ const SellerProducts = () => {
                   </td>
 
                   <td className="px-6 py-4 font-bold text-gray-800">
-                    ₹{Number(product.price).toLocaleString()}
+                    <div className="flex flex-col">
+                      <span>₹{Number(product.discountPrice || product.price).toLocaleString()}</span>
+                      {Number(product.price) > Number(product.discountPrice) && (
+                        <span className="text-[10px] text-gray-400 line-through font-medium">
+                          MRP: ₹{Number(product.price).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   <td className="px-6 py-4">
@@ -199,7 +218,7 @@ const SellerProducts = () => {
                 <tr>
                   <td colSpan="5" className="px-6 py-12 text-center text-gray-500">
                     <p className="text-lg font-medium">No products found</p>
-                    <p className="text-sm">Try adjusting your filters or search query</p>
+                    <p className="text-sm">Try adding a new product or adjusting your filters</p>
                   </td>
                 </tr>
               )}
